@@ -1,2 +1,2 @@
 # tr-plots
-plotting population frequency 
+plotting tandem repeat population frequency 
