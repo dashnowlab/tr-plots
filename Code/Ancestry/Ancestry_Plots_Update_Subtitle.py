@@ -10,16 +10,14 @@ from statsmodels.stats import proportion
 TEST_MODE = True
 
 # Load data
-df = pd.read_csv('/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv')
+df = pd.read_csv('.../Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv')
 
 # Output directories
-OUTPUT_DIR = '/Users/annelisethorn/Documents/Anschutz/Plots/Ancestry_Plots/PNG/83_loci_503_samples_Correct2'
-OUTPUT_DIR2 = '/Users/annelisethorn/Documents/Anschutz/Plots/Ancestry_Plots/HTML/83_loci_503_samples_Correct2'
+OUTPUT_DIR = '.../.../Plots/Ancestry_Plots/HTML/83_loci_503_samples_Subtitle_Test_2'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-os.makedirs(OUTPUT_DIR2, exist_ok=True)
 
 # Merge Pore information
-pore_df = pd.read_csv('/Users/annelisethorn/Documents/Anschutz/Datasets/Other/1KGP_ONT_500_Summary_Sample_ID_Pore.csv')
+pore_df = pd.read_csv('.../..../Datasets/Other/1KGP_ONT_500_Summary_Sample_ID_Pore.csv')
 pore_df['Base Sample ID'] = pore_df['Sample_ID'].apply(lambda x: x.split('-')[0] if isinstance(x, str) else x)
 df['Base Sample ID'] = df['Sample ID'].apply(lambda x: x.split('-')[0])
 df = df.merge(pore_df[['Base Sample ID', 'Pore']], on='Base Sample ID', how='left')
@@ -164,6 +162,8 @@ def add_combined_row(group_df):
             result.append(combined)
     return pd.DataFrame(result)
 
+pop_counts_strs = []
+
 def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
     raw_inh = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)]['Inheritance']
     inheritance = raw_inh.iloc[0] if not raw_inh.empty else ''
@@ -229,6 +229,8 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
             ])
         else:
             pop_counts_str = "<span style='font-size:12px'>No population count data.</span>"
+        
+        pop_counts_strs.append(pop_counts_str)
 
     fig = go.Figure()
     trace_labels = []
@@ -287,7 +289,33 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
                     dict(
                         label=label,
                         method="update",
-                        args=[{"visible": [i == j for j in range(len(trace_labels))]}]
+                        args=[
+                            {"visible": [i == j for j in range(len(trace_labels))]},
+                            {"annotations": [
+                                dict(
+                                    text=pop_counts_strs[i],
+                                    x=0,
+                                    y=1.03,
+                                    xref="paper",
+                                    yref="paper",
+                                    showarrow=False,
+                                    font=dict(size=12, color="black"),
+                                    align="left",
+                                    xanchor="left",
+                                    name="pop_subtitle"
+                                ),
+                                dict(
+                                    text="Pore Type:",
+                                    x=1.15,
+                                    y=1.23,
+                                    xref="paper",
+                                    yref="paper",
+                                    showarrow=False,
+                                    font=dict(size=12, color="black"),
+                                    xanchor="center"
+                                )
+                            ]}
+                        ]
                     )
                     for i, label in enumerate(trace_labels)
                 ],
@@ -302,6 +330,18 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
 
         annotations=[
             dict(
+                text=pop_counts_strs[trace_labels.index('All Types')],
+                x=0,
+                y=1.03,
+                xref="paper",
+                yref="paper",
+                showarrow=False,
+                font=dict(size=12, color="black"),
+                align="left",
+                xanchor="left",
+                name="pop_subtitle"
+            ),
+            dict(
                 text="Pore Type:",
                 x=1.15,
                 y=1.23,
@@ -312,7 +352,6 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
                 xanchor="center"
             )
         ],
-
         xaxis=dict(
             range=[0, 100],
             tickmode='linear',
@@ -350,12 +389,11 @@ for gene in df_agg['Gene'].unique():
             safe_gene = re.sub(r'[\\/]', '_', gene)
             safe_disease = re.sub(r'[\\/]', '_', disease)
 
-            print(f"✅ Plot generated for: {gene} / {disease}")
+            print(f"Plot generated for: {gene} / {disease}")
             fig.show()  # For visual testing (or comment this if you only want to print)
 
             if not TEST_MODE:
-                # fig.write_image(os.path.join(OUTPUT_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.png"))
-                fig.write_html(os.path.join(OUTPUT_DIR2, f"{safe_gene}_{safe_disease}_ancestry_plot.html"))
+                fig.write_html(os.path.join(OUTPUT_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html"))
             else:
                 printed = True
                 break  # Only do one plot in test mode

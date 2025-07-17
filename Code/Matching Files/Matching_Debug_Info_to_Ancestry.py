@@ -3,12 +3,12 @@ import json
 import numpy as np
 
 # File paths
-# CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_68_loci_100_samples.csv"
+CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_68_loci_100_samples.csv"
 # CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_83_loci_88_samples.csv"
-CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_83_loci_503_samples.csv"
+# CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_83_loci_503_samples.csv"
 
-JSON_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/Other/STRchive-loci.json"
-TSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/Other/sample_information.tsv"
+JSON_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/STRchive-loci.json"
+TSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/sample_information.tsv"
 
 # Load CSV (VCF data) and use the first row as column headers
 csv_data = pd.read_csv(CSV_PATH, sep=",", header=0)
@@ -113,16 +113,11 @@ csv_data_withancestrycolumns['Motif length'] = csv_data_withancestrycolumns['Mot
 # Convert Allele length to numeric if it's not already
 csv_data_withancestrycolumns['Allele length'] = pd.to_numeric(csv_data_withancestrycolumns['Allele length'], errors='coerce')
 
-# Remove any existing incorrect column
-csv_data_withancestrycolumns.drop(columns=['Repeat count'], errors='ignore', inplace=True)
-
-# Recalculate Repeat count properly
+# Calculate REPEAT_COUNT = AL / MOTIF_LENGTH
 csv_data_withancestrycolumns['Repeat count'] = csv_data_withancestrycolumns.apply(
     lambda row: row['Allele length'] / row['Motif length'] if row['Motif length'] > 0 else None,
     axis=1
 )
-
-csv_data_withancestrycolumns['Repeat count'] = csv_data_withancestrycolumns['Repeat count'].round(2)
 
 def flag_pathogenic(row):
     """
@@ -165,17 +160,17 @@ csv_data_withancestrycolumns = csv_data_withancestrycolumns[present_desired_cols
 # Export to CSVs
 # output_csv_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/68_loci_100_samples_withancestrycolumns.csv"
 # output_csv_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_88_samples_withancestrycolumns.csv"
-# output_csv_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns_2.csv"
+output_csv_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv"
 
-# csv_data_withancestrycolumns.to_csv(
-#     output_csv_path,
-#     index=False
-# )
+csv_data_withancestrycolumns.to_csv(
+    output_csv_path,
+    index=False
+)
 
 # Export to Excel
 # output_excel_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/68_loci_100_samples_withancestrycolumns.xlsx"
 # output_excel_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/83_loci_88_samples_withancestrycolumns.xlsx"
-output_excel_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/83_loci_503_samples_withancestrycolumns_2.xlsx"
+output_excel_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/83_loci_503_samples_withancestrycolumns.xlsx"
 
 csv_data_withancestrycolumns.to_excel(
     output_excel_path,

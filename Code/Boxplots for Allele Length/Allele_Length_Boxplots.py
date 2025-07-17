@@ -5,9 +5,7 @@ import os
 import ast
 
 # Load data
-# df = pd.read_csv('/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv')
-df = pd.read_excel('/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/83_loci_503_samples_withancestrycolumns_2.xlsx')
-
+df = pd.read_csv('/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv')
 
 # Compute 'Is pathogenic' from allele length and pathogenic thresholds
 df['Is pathogenic'] = (
@@ -16,9 +14,9 @@ df['Is pathogenic'] = (
 )
 
 # Output paths
-OUTPUT_DIR = "/Users/annelisethorn/Documents/Anschutz/Plots/Allele_Length_Boxplots/PNG/Switched_Axes/83_loci_503_samples_corrected"
+OUTPUT_DIR = "/Users/annelisethorn/Documents/Anschutz/Plots/Allele_Length_Boxplots/PNG/Switched_Axes/83_loci_503_samples3"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-OUTPUT_DIR2 = "/Users/annelisethorn/Documents/Anschutz/Plots/Allele_Length_Boxplots/HTML/Switched_Axes/83_loci_503_samples_corrected"
+OUTPUT_DIR2 = "/Users/annelisethorn/Documents/Anschutz/Plots/Allele_Length_Boxplots/HTML/Switched_Axes/83_loci_503_samples3"
 os.makedirs(OUTPUT_DIR2, exist_ok=True)
 
 # Group by Disease, Gene, SuperPop, Allele length
