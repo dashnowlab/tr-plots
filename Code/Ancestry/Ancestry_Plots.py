@@ -6,20 +6,27 @@ import ast
 import numpy as np
 from statsmodels.stats import proportion
 
+# Output directories
+OUTPUT_DIR = '83_loci_503_samples_subtitletest'
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+# Merge Pore information
+pore_df = pd.read_csv
+
 # Enable test mode to generate only one plot
 TEST_MODE = True
 
 # Load data
-df = pd.read_csv('/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv')
+df = pd.read_excel('/Users/annelisethorn/Documents/GitHub/tr-plots/Code/Matching Files/Excels/83_loci_503_samples_withancestrycolumns.xlsx')
 
 # Output directories
-OUTPUT_DIR = '/Users/annelisethorn/Documents/Anschutz/Plots/Ancestry_Plots/PNG/83_loci_503_samples_Correct2'
-OUTPUT_DIR2 = '/Users/annelisethorn/Documents/Anschutz/Plots/Ancestry_Plots/HTML/83_loci_503_samples_Correct2'
+# OUTPUT_DIR = '/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/83_loci_503_samples_2'
+OUTPUT_DIR2 = '/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/83_loci_503_samples_2'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR2, exist_ok=True)
 
 # Merge Pore information
-pore_df = pd.read_csv('/Users/annelisethorn/Documents/Anschutz/Datasets/Other/1KGP_ONT_500_Summary_Sample_ID_Pore.csv')
+pore_df = pd.read_csv('/Users/annelisethorn/Documents/GitHub/tr-plots/Datasets/Other/1KGP_ONT_500_Summary_Sample_ID_Pore.csv')
 pore_df['Base Sample ID'] = pore_df['Sample_ID'].apply(lambda x: x.split('-')[0] if isinstance(x, str) else x)
 df['Base Sample ID'] = df['Sample ID'].apply(lambda x: x.split('-')[0])
 df = df.merge(pore_df[['Base Sample ID', 'Pore']], on='Base Sample ID', how='left')
@@ -350,7 +357,7 @@ for gene in df_agg['Gene'].unique():
             safe_gene = re.sub(r'[\\/]', '_', gene)
             safe_disease = re.sub(r'[\\/]', '_', disease)
 
-            print(f"✅ Plot generated for: {gene} / {disease}")
+            print(f"Plot generated for: {gene} / {disease}")
             fig.show()  # For visual testing (or comment this if you only want to print)
 
             if not TEST_MODE:
