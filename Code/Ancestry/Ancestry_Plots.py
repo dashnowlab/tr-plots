@@ -6,11 +6,13 @@ import ast
 import numpy as np
 from statsmodels.stats import proportion
 
+# hello world
+
 # Enable test mode to generate only one plot
 TEST_MODE = True
 
 # Load data
-df = pd.read_csv('/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv')
+df = pd.read_csv('../Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv')
 
 # Output directories
 OUTPUT_DIR = '/Users/annelisethorn/Documents/Anschutz/Plots/Ancestry_Plots/HTML/83_loci_503_samples_Subtitle_Test_7'
