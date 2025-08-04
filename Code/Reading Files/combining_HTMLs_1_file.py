@@ -4,9 +4,9 @@ from bs4 import BeautifulSoup
 # Initialize an empty HTML document
 output_doc = BeautifulSoup("<html><body></body></html>", "html.parser")
 
-input_dir = '/Users/annelisethorn/Documents/Anschutz/Plots/Ancestry_Plots/HTML/83_loci_503_samples_Pore_Dropdown_Correct'
+input_dir = '/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/83_loci_503'
 
-output_dir = '/Users/annelisethorn/Documents/Anschutz/Plots/Ancestry_Plots/HTML/83_loci_503_samples_Pore_Dropdown_Correct'
+output_dir = '/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/83_loci_503'
 
 # Sort the files for consistent order
 for file in sorted(os.listdir(input_dir)):

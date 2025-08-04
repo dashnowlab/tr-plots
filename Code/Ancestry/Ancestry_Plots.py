@@ -7,13 +7,13 @@ import numpy as np
 from statsmodels.stats import proportion
 
 # Enable test mode to generate only one plot
-TEST_MODE = True
+TEST_MODE = False
 
 # Load data
 df = pd.read_excel('/Users/annelisethorn/Documents/GitHub/tr-plots/Code/Matching Files/Excels/83_loci_503_samples_withancestrycolumns.xlsx')
 
 # Output directories
-OUTPUT_DIR = '/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/83_loci_503_samples_subtitletest'
+OUTPUT_DIR = '/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/83_loci_503'
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # Merge Pore information
@@ -374,8 +374,8 @@ for gene in df_agg['Gene'].unique():
             safe_gene = re.sub(r'[\\/]', '_', gene)
             safe_disease = re.sub(r'[\\/]', '_', disease)
 
-            print(f"Plot generated for: {gene} / {disease}")
-            fig.show()  # For visual testing (or comment this if you only want to print)
+            # print(f"Plot generated for: {gene} / {disease}")
+            # fig.show()  # For visual testing (or comment this if you only want to print)
 
             if not TEST_MODE:
                 fig.write_html(os.path.join(OUTPUT_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html"))
