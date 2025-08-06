@@ -5,7 +5,7 @@ import numpy as np
 # File paths
 CSV_PATH = "Data/debug_info_83_loci_503_samples.csv"
 JSON_PATH = "Data/STRchive-loci-v2.7.0.json"
-TSV_PATH = "Data/sample_information.tsv"
+SAMPLE_METADATA_PATH = "Data/igsr_samples.tsv" # Data is from here: https://www.internationalgenome.org/data-portal/sample
 
 # Load CSV (VCF data) and use the first row as column headers
 csv_data = pd.read_csv(CSV_PATH, sep=",", header=0)
@@ -18,19 +18,19 @@ with open(JSON_PATH, "r") as file:
     json_data = json.load(file)
 
 # Load Sample Population Information (ancestry data)
-tsv_data = pd.read_csv(TSV_PATH, sep="\t", skiprows=1)
+sample_data = pd.read_csv(SAMPLE_METADATA_PATH, sep="\t", skiprows=1)
 
 # Pre-create population mapping dictionary
-def create_population_mapping(tsv_df):
+def create_population_mapping(sample_metadata_df):
     """Create mapping dictionaries once instead of repeatedly accessing DataFrame"""
-    tsv_first_col = tsv_df.columns[0]
-    tsv_third_col = tsv_df.columns[2]
-    tsv_fourth_col = tsv_df.columns[3]
+    tsv_first_col = sample_metadata_df.columns[0]
+    tsv_third_col = sample_metadata_df.columns[2]
+    tsv_fourth_col = sample_metadata_df.columns[3]
 
     population_dict = {}
     description_dict = {}
 
-    for _, row in tsv_df.iterrows():
+    for _, row in sample_metadata_df.iterrows():
         sample_id = row[tsv_first_col]
         population_dict[sample_id] = row[tsv_third_col]
         description_dict[sample_id] = row[tsv_fourth_col]
@@ -38,10 +38,12 @@ def create_population_mapping(tsv_df):
     return population_dict, description_dict
 
 # Vectorized population mapping
-def add_population_info_optimized(csv_df_copy, tsv_df):
-    population_dict, description_dict = create_population_mapping(tsv_df)
+def add_population_info_optimized(csv_df_copy, sample_metadata_df):
+    population_dict, description_dict = create_population_mapping(sample_metadata_df)
     # remove everything in sample ID after the first -
     csv_df_copy['Sample ID'] = csv_df_copy['Sample ID'].astype(str).str.strip().str.split('-').str[0]
+    # Replace GM with NA at the start of Sample ID
+    csv_df_copy['Sample ID'] = csv_df_copy['Sample ID'].str.replace('^GM', 'NA', regex=True).str.strip()
     csv_df_copy['Population'] = csv_df_copy['Sample ID'].map(population_dict).fillna('Unknown')
     csv_df_copy['Population description'] = csv_df_copy['Sample ID'].map(description_dict).fillna('Unknown')
 
@@ -121,7 +123,7 @@ def add_json_info_by_chrom_pos_optimized(csv_df_copy, json_data):
 
 # Main processing
 print("Adding population info...")
-csv_data_withancestrycolumns = add_population_info_optimized(csv_data_copy, tsv_data)
+csv_data_withancestrycolumns = add_population_info_optimized(csv_data_copy, sample_data)
 
 print("Cleaning population names...")
 csv_data_withancestrycolumns = add_population_info_with_cleaned_optimized(csv_data_withancestrycolumns)
