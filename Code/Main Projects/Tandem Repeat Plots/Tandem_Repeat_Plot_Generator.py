@@ -31,15 +31,15 @@ BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-OUTPUT_PATH = f"{BASE_DIR}/Results/Plots/Tandem_Repeats_Plots"
+OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Tandem_Repeats_Plots"
 
 # Make sure the output folder exists
-os.makedirs(OUTPUT_PATH, exist_ok=True)
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # If test mode, use a subfolder for test outputs
 if TEST_MODE:
-    OUTPUT_PATH = os.path.join(OUTPUT_PATH, "test_outputs")
-    os.makedirs(OUTPUT_PATH, exist_ok=True)
+    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- Load the metadata file ---
 with open(METADATA_PATH, "r") as file:
@@ -238,9 +238,9 @@ for i, record in enumerate(vcf_in.fetch()):              # enumerate so we can c
                                  chart_width_px=fig.layout.width, x_span=x_span, level=2)
 
     # --- Save plot as PNG and HTML ---
-    fig.write_image(os.path.join(OUTPUT_PATH, f"{gene}_{chrom}_{pos}_allele_dist.png"),
+    fig.write_image(os.path.join(OUTPUT_DIR, f"{gene}_{chrom}_{pos}_allele_dist.png"),
                     format="png", width=900, height=500, scale=2)
-    fig.write_html(os.path.join(OUTPUT_PATH, f"{gene}_{chrom}_{pos}_allele_dist.html"))
+    fig.write_html(os.path.join(OUTPUT_DIR, f"{gene}_{chrom}_{pos}_allele_dist.html"))
 
 # --- Finished ---
 if TEST_MODE:
