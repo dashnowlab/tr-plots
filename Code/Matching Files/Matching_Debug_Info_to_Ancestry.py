@@ -1,43 +1,80 @@
-import pandas as pd
+"""
+---------------------------------------------
+ Script: CSV + JSON + Ancestry Merger
+ Purpose:
+   - Reads debug CSV with allele + locus info
+   - Merges ancestry information from TSV
+   - Cleans and standardizes population labels
+   - Enriches rows with inheritance info from JSON
+   - Computes motif length & repeat counts
+   - Flags pathogenic individuals based on thresholds
+   - Saves enriched dataset as CSV and Excel
+   - Test mode: limit rows and optionally save to test_outputs/
+---------------------------------------------
+"""
+
+import os
 import json
 import numpy as np
+import pandas as pd
 
-# File paths
-CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_68_loci_100_samples.csv"
-# CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_83_loci_88_samples.csv"
-# CSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Debug/debug_info_83_loci_503_samples.csv"
+# --- TEST MODE ---
+TEST_MODE = True          # Toggle for quick checks
+TEST_LIMIT = 100        # Number of rows to process in test mode
+SAVE_TEST_OUTPUTS = True  # If True, write files in test mode; otherwise just preview
 
-JSON_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/STRchive-loci.json"
-TSV_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/sample_information.tsv"
+# --- File locations ---
+BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
-# Load CSV (VCF data) and use the first row as column headers
+CSV_PATH  = f"{BASE_DIR}/Results/Debug/debug_info_83_loci_503_samples.csv"
+JSON_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
+TSV_PATH  = f"{BASE_DIR}/Data/Other Data/sample_information.tsv"
+
+# Output roots (normal mode)
+OUTPUT_BASE     = f"{BASE_DIR}/Code/Matching Files"
+OUTPUT_DIR_CSV  = os.path.join(OUTPUT_BASE, "CSVs")
+OUTPUT_DIR_XLSX = os.path.join(OUTPUT_BASE, "Excels")
+os.makedirs(OUTPUT_DIR_CSV, exist_ok=True)
+os.makedirs(OUTPUT_DIR_XLSX, exist_ok=True)
+
+# In test mode, write everything to a single test_outputs folder
+if TEST_MODE:
+    TEST_OUT = os.path.join(OUTPUT_BASE, "test_outputs")
+    os.makedirs(TEST_OUT, exist_ok=True)
+    OUTPUT_DIR_CSV  = TEST_OUT
+    OUTPUT_DIR_XLSX = TEST_OUT
+
+OUTPUT_CSV   = os.path.join(OUTPUT_DIR_CSV,  "83_loci_503_samples_withancestrycolumns.csv")
+OUTPUT_EXCEL = os.path.join(OUTPUT_DIR_XLSX, "83_loci_503_samples_withancestrycolumns.xlsx")
+
+# --- Load data ---
 csv_data = pd.read_csv(CSV_PATH, sep=",", header=0)
-
-# Make a copy so we don't modify the original data
-csv_data_copy = csv_data.copy()
-
-# Load JSON metadata for loci
 with open(JSON_PATH, "r") as file:
     json_data = json.load(file)
-
-# Load Sample Population Information (ancestry data)
 tsv_data = pd.read_csv(TSV_PATH, sep="\t", skiprows=1)
 
-# Add ancestry population columns
-def add_population_info(csv_df_copy, tsv_df):
-    tsv_first_col = tsv_df.columns[0]
-    tsv_third_col = tsv_df.columns[2]
-    tsv_fourth_col = tsv_df.columns[3]
+# If test mode, work on a head() slice to speed things up
+work_df = csv_data.copy()
+if TEST_MODE:
+    work_df = work_df.head(TEST_LIMIT)
 
-    population_map = tsv_df.set_index(tsv_first_col)[[tsv_third_col, tsv_fourth_col]].to_dict(orient='index')
+# --- Add ancestry population columns ---
+def add_population_info(csv_df, tsv_df):
+    id_col    = tsv_df.columns[0]
+    sub_col   = tsv_df.columns[2]
+    super_col = tsv_df.columns[3]
 
-    csv_df_copy['Sample ID'] = csv_df_copy['Sample ID'].astype(str).str.strip()
-    csv_df_copy['Population'] = csv_df_copy['Sample ID'].map(lambda x: population_map.get(x, {}).get(tsv_third_col, 'Unknown'))
-    csv_df_copy['Population description'] = csv_df_copy['Sample ID'].map(lambda x: population_map.get(x, {}).get(tsv_fourth_col, 'Unknown'))
+    population_map = (
+        tsv_df.set_index(id_col)[[sub_col, super_col]]
+              .to_dict(orient='index')
+    )
 
-    return csv_df_copy
+    csv_df['Sample ID'] = csv_df['Sample ID'].astype(str).str.strip()
+    csv_df['Population'] = csv_df['Sample ID'].map(lambda x: population_map.get(x, {}).get(sub_col, 'Unknown'))
+    csv_df['Population description'] = csv_df['Sample ID'].map(lambda x: population_map.get(x, {}).get(super_col, 'Unknown'))
+    return csv_df
 
-# Normalize population descriptions
+# --- Normalize population names ---
 def clean_population_names(name):
     mapping = {
         'Unknown': 'Unknown',
@@ -61,121 +98,84 @@ def clean_population_names(name):
     }
     return mapping.get(name, name)
 
-def add_population_info_with_cleaned(csv_df_copy, tsv_df):
-    csv_df_copy['Cleaned population description'] = csv_df_copy['Population description'].apply(clean_population_names)
-    return csv_df_copy
+def add_population_info_with_cleaned(csv_df):
+    csv_df['Cleaned population description'] = csv_df['Population description'].apply(clean_population_names)
+    return csv_df
 
-# Add inheritance info from JSON using CHROM and POS
-def add_json_info_by_chrom_pos(csv_df_copy, json_data):
+# --- Add inheritance info from JSON ---
+def add_json_info_by_chrom_pos(csv_df, json_data):
     json_df = pd.DataFrame(json_data)
-    json_df['chrom'] = json_df['chrom'].astype(str).str.replace('chr', '', regex=False)
+    json_df['chrom']      = json_df['chrom'].astype(str).str.replace('chr', '', regex=False)
     json_df['start_hg38'] = pd.to_numeric(json_df['start_hg38'], errors='coerce')
-    json_df['stop_hg38'] = pd.to_numeric(json_df['stop_hg38'], errors='coerce')
+    json_df['stop_hg38']  = pd.to_numeric(json_df['stop_hg38'], errors='coerce')
 
-    csv_df_copy['Chromosome'] = csv_df_copy['Chromosome'].astype(str).str.replace('chr', '', regex=False)
-    csv_df_copy['Position'] = pd.to_numeric(csv_df_copy['Position'], errors='coerce')
+    csv_df['Chromosome'] = csv_df['Chromosome'].astype(str).str.replace('chr', '', regex=False)
+    csv_df['Position']   = pd.to_numeric(csv_df['Position'], errors='coerce')
 
-    field = 'inheritance'
-    output_col = 'Inheritance'
-
-    # Prepare a list to collect results
     results = []
-
-    # For each row in csv_df, find the matching interval in json_df
-    for idx, row in csv_df_copy.iterrows():
-        chrom = row['Chromosome']
-        pos = row['Position']
+    for _, row in csv_df.iterrows():
+        chrom, pos = row['Chromosome'], row['Position']
         match = json_df[
             (json_df['chrom'] == chrom) &
             (json_df['start_hg38'] <= pos) &
             (json_df['stop_hg38'] >= pos)
         ]
         if not match.empty:
-            # If multiple matches, take the first
-            match_row = match.iloc[0]
-            row[output_col] = match_row[field]
+            row['Inheritance'] = match.iloc[0]['inheritance']
         results.append(row)
 
-    merged = pd.DataFrame(results)
-    return merged
+    return pd.DataFrame(results)
 
-# Apply the enrichment steps
-csv_data_withancestrycolumns = add_population_info(csv_data_copy, tsv_data)
-csv_data_withancestrycolumns = add_population_info_with_cleaned(csv_data_withancestrycolumns, tsv_data)
-csv_data_withancestrycolumns = add_json_info_by_chrom_pos(csv_data_withancestrycolumns, json_data)
+# --- Apply the enrichment ---
+df = add_population_info(work_df, tsv_data)
+df = add_population_info_with_cleaned(df)
+df = add_json_info_by_chrom_pos(df, json_data)
 
-# Drop the ALLR column if it exists
-csv_data_withancestrycolumns.drop(columns=['ALLR'], errors='ignore', inplace=True)
+# Drop extra column if present
+df.drop(columns=['ALLR'], errors='ignore', inplace=True)
 
-# Add Motif length column
-csv_data_withancestrycolumns['Motif length'] = csv_data_withancestrycolumns['Motif'].astype(str).str.len()
+# --- Derived fields ---
+df['Motif length']  = df['Motif'].astype(str).str.len()
+df['Allele length'] = pd.to_numeric(df['Allele length'], errors='coerce')
 
-# Convert Allele length to numeric if it's not already
-csv_data_withancestrycolumns['Allele length'] = pd.to_numeric(csv_data_withancestrycolumns['Allele length'], errors='coerce')
-
-# Calculate REPEAT_COUNT = AL / MOTIF_LENGTH
-csv_data_withancestrycolumns['Repeat count'] = csv_data_withancestrycolumns.apply(
+df['Repeat count'] = df.apply(
     lambda row: row['Allele length'] / row['Motif length'] if row['Motif length'] > 0 else None,
     axis=1
 )
 
 def flag_pathogenic(row):
-    """
-    • If either PATHOGENIC_MIN or PATHOGENIC_MAX is missing → return np.nan
-    • Otherwise return True/False depending on the repeat-count range
-    """
-    if (
-        pd.isna(row['Pathogenic min']) or
-        pd.isna(row['Pathogenic max']) or
-        pd.isna(row['Repeat count'])
-    ):
-        return np.nan          # will appear as a blank cell in the CSV
+    if pd.isna(row['Pathogenic min']) or pd.isna(row['Pathogenic max']) or pd.isna(row['Repeat count']):
+        return np.nan
     return row['Pathogenic min'] <= row['Repeat count'] <= row['Pathogenic max']
 
-csv_data_withancestrycolumns['Is pathogenic'] = (
-    csv_data_withancestrycolumns.apply(flag_pathogenic, axis=1)
-)
+df['Is pathogenic']   = df.apply(flag_pathogenic, axis=1)
+df['Pathogenic min']  = pd.to_numeric(df['Pathogenic min'], errors='coerce')
+df['Pathogenic max']  = pd.to_numeric(df['Pathogenic max'], errors='coerce')
 
-# Ensure Pathogenic min and Pathogenic max are numeric
-csv_data_withancestrycolumns['Pathogenic min'] = pd.to_numeric(csv_data_withancestrycolumns['Pathogenic min'], errors='coerce')
-csv_data_withancestrycolumns['Pathogenic max'] = pd.to_numeric(csv_data_withancestrycolumns['Pathogenic max'], errors='coerce')
-
-# Define the exact column order
+# --- Reorder columns for readability ---
 desired_order = [
     'Chromosome', 'Position', 'Gene', 'Disease', 'Motif',
     'Allele length', 'Motif length', 'Repeat count',
     'Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max',
     'Is pathogenic', 'Sample ID'
 ]
+present_cols = [c for c in desired_order if c in df.columns]
+remaining    = [c for c in df.columns if c not in present_cols]
+df = df[present_cols + remaining]
 
-present_desired_cols = [c for c in desired_order if c in csv_data_withancestrycolumns.columns]
-remaining_cols       = [c for c in csv_data_withancestrycolumns.columns
-                        if c not in present_desired_cols]
+# --- Save outputs ---
+if TEST_MODE:
+    print(f"[TEST] Rows processed: {len(df)} (limit={TEST_LIMIT})")
+    if SAVE_TEST_OUTPUTS:
+        df.to_csv(OUTPUT_CSV, index=False)
+        df.to_excel(OUTPUT_EXCEL, index=False)
+        print(f"[TEST] Saved CSV  → {OUTPUT_CSV}")
+        print(f"[TEST] Saved XLSX → {OUTPUT_EXCEL}")
+else:
+    df.to_csv(OUTPUT_CSV, index=False)
+    df.to_excel(OUTPUT_EXCEL, index=False)
+    print(f"Saved CSV  → {OUTPUT_CSV}")
+    print(f"Saved XLSX → {OUTPUT_EXCEL}")
 
-final_col_order = present_desired_cols + remaining_cols
-
-
-csv_data_withancestrycolumns = csv_data_withancestrycolumns[present_desired_cols + remaining_cols]
-
-# Export to CSVs
-# output_csv_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/68_loci_100_samples_withancestrycolumns.csv"
-# output_csv_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_88_samples_withancestrycolumns.csv"
-output_csv_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/CSVs/83_loci_503_samples_withancestrycolumns.csv"
-
-csv_data_withancestrycolumns.to_csv(
-    output_csv_path,
-    index=False
-)
-
-# Export to Excel
-# output_excel_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/68_loci_100_samples_withancestrycolumns.xlsx"
-# output_excel_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/83_loci_88_samples_withancestrycolumns.xlsx"
-output_excel_path = "/Users/annelisethorn/Documents/Anschutz/Code/Matching Files/Excels/83_loci_503_samples_withancestrycolumns.xlsx"
-
-csv_data_withancestrycolumns.to_excel(
-    output_excel_path,
-    index=False
-)
-
-# Print progress
+# --- Finished ---
 print("--- Done ---")
