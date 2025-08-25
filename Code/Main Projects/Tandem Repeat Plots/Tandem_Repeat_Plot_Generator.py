@@ -22,6 +22,10 @@ import plotly.graph_objects as go
 import pandas as pd
 import re
 
+# --- TEST MODE ---
+TEST_MODE = True   # Toggle this flag for quick testing
+TEST_LIMIT = 5     # how many VCF records to process when testing
+
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
@@ -29,18 +33,13 @@ VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRch
 METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
 OUTPUT_PATH = f"{BASE_DIR}/Results/Plots/Tandem_Repeats_Plots"
 
-# Make sure the output folder exists, if not create one
-if not os.path.exists(OUTPUT_PATH):
-    os.makedirs(OUTPUT_PATH)
+# Make sure the output folder exists
+os.makedirs(OUTPUT_PATH, exist_ok=True)
 
-# --- TEST MODE ---
-TEST_MODE = True   # Toggle this flag for quick testing
-TEST_LIMIT = 5   # how many VCF records to process when testing
-
+# If test mode, use a subfolder for test outputs
 if TEST_MODE:
     OUTPUT_PATH = os.path.join(OUTPUT_PATH, "test_outputs")
-    if not os.path.exists(OUTPUT_PATH):
-        os.makedirs(OUTPUT_PATH)
+    os.makedirs(OUTPUT_PATH, exist_ok=True)
 
 # --- Load the metadata file ---
 with open(METADATA_PATH, "r") as file:

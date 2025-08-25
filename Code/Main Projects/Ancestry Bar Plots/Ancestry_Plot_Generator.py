@@ -1,3 +1,17 @@
+"""
+---------------------------------------------
+ Script: Ancestry Bar Plot Generator
+ Purpose:
+   - Reads a dataset containing ancestry and genotype information 
+     for multiple samples
+   - Cleans and standardizes metadata (population labels, sex, inheritance)
+   - Counts pathogenic individuals under AD/AR/XD/XR models
+   - Computes percentages and 95% binomial confidence intervals
+   - Builds horizontal bar plots with dropdowns for Pore type and Sex
+   - Saves plots as interactive HTML (and shows a preview)
+---------------------------------------------
+"""
+
 import pandas as pd
 import re
 import plotly.graph_objects as go
@@ -6,29 +20,35 @@ import ast
 import numpy as np
 from statsmodels.stats import proportion
 
-# Enable test mode to generate only one plot
-TEST_MODE = True
+# --- TEST MODE ---
+TEST_MODE = True   # Toggle this flag for quick testing (only one plot generated)
 
-# Load data (kept original path)
-df = pd.read_excel('/Users/annelisethorn/Documents/GitHub/tr-plots/Datasets/83_loci_503_samples/83_loci_503_samples_with_sex4.xlsx')
+# --- File locations ---
+BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
-# Output directories (kept original path)
-OUTPUT_DIR = '/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/83_loci_503'
+DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex4.xlsx"
+PORE_PATH = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary_Sample_ID_Pore.csv"
+OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Plots/83_loci_503"
+
+# Make sure output directory exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Merge Pore information
-pore_df = pd.read_csv('/Users/annelisethorn/Documents/GitHub/tr-plots/Datasets/Other/1KGP_ONT_500_Summary_Sample_ID_Pore.csv')
+# --- Load main dataset ---
+df = pd.read_excel(DATA_PATH)
+
+# --- Merge pore information (R9 / R10) ---
+pore_df = pd.read_csv(PORE_PATH)
 pore_df['Base Sample ID'] = pore_df['Sample_ID'].apply(lambda x: x.split('-')[0] if isinstance(x, str) else x)
 df['Base Sample ID'] = df['Sample ID'].apply(lambda x: x.split('-')[0])
 df = df.merge(pore_df[['Base Sample ID', 'Pore']], on='Base Sample ID', how='left')
 
-# Use ancestry column if present
+# --- Use ancestry information ---
 if 'SuperPop' in df.columns:
     df['Cleaned population description'] = df['SuperPop']
 elif 'Cleaned population description' not in df.columns:
     raise KeyError("Missing both 'SuperPop' and 'Cleaned population description' columns.")
 
-# Add 'Is pathogenic'
+# --- Flag pathogenic individuals (based on repeat counts) ---
 df['Is pathogenic'] = df.apply(
     lambda row: (
         row['Pathogenic min'] <= row['Repeat count'] <= row['Pathogenic max']
@@ -38,7 +58,7 @@ df['Is pathogenic'] = df.apply(
     axis=1
 )
 
-# Normalize inheritance field (remove stringified lists)
+# --- Clean inheritance column (remove stringified lists like "['AD']") ---
 def clean_inheritance(x):
     if isinstance(x, str) and x.startswith('['):
         try:
@@ -51,7 +71,7 @@ def clean_inheritance(x):
 mask = df['Inheritance'].astype(str).str.startswith('[')
 df.loc[mask, 'Inheritance'] = df.loc[mask, 'Inheritance'].apply(clean_inheritance)
 
-# --- Standardize Sex labels so the dropdown shows expected options ---
+# --- Standardize sex labels ---
 if 'Sex' not in df.columns:
     df['Sex'] = 'All Sexes'
 else:
@@ -68,28 +88,38 @@ else:
     )
     df.loc[df['Sex'].isin(['', 'nan', 'None']), 'Sex'] = 'Unknown'
 
-# --------------------------------
-# >>> Add Sex to aggregation <<<
-# --------------------------------
-# Aggregation
-total_count = df.groupby(['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex'])['Sample ID'].nunique().reset_index(name='total_count')
+# --- Aggregate counts per Disease / Gene / Population / Pore / Sex ---
+total_count = df.groupby(
+    ['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex']
+)['Sample ID'].nunique().reset_index(name='total_count')
 
+# --- Count pathogenic individuals under each inheritance model ---
 def count_affected(df_in, inh_mode, min_alleles):
     df_inh = df_in[df_in['Inheritance'] == inh_mode]
     df_path = df_inh[df_inh['Is pathogenic'] == True]
-    grouped = df_path.groupby(['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex', 'Sample ID']).size().reset_index(name='path_count')
+    grouped = df_path.groupby(
+        ['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex', 'Sample ID']
+    ).size().reset_index(name='path_count')
     affected = grouped[grouped['path_count'] >= min_alleles]
-    return affected.groupby(['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex'])['Sample ID'].nunique().reset_index(name=f'{inh_mode.lower()}_affected_counts')
+    return affected.groupby(
+        ['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex']
+    )['Sample ID'].nunique().reset_index(name=f'{inh_mode.lower()}_affected_counts')
 
 ad_affected = count_affected(df, 'AD', 1)
 ar_affected = count_affected(df, 'AR', 2)
 xd_affected = count_affected(df, 'XD', 1)
 xr_affected = count_affected(df, 'XR', 2)
 
+# --- Merge affected counts into main summary ---
 df_agg = total_count.copy()
 for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
-    df_agg = df_agg.merge(affected_df, on=['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex'], how='left')
+    df_agg = df_agg.merge(
+        affected_df,
+        on=['Disease', 'Gene', 'Cleaned population description', 'Pore', 'Sex'],
+        how='left'
+    )
 
+# --- Compute percentages and 95% CIs ---
 for inh in ['ad', 'ar', 'xd', 'xr']:
     df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
     df_agg[f'{inh}_percentage'] = df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100
@@ -109,7 +139,7 @@ for inh in ['ad', 'ar', 'xd', 'xr']:
     df_agg[f'{inh}_ci_lower'] = lowers
     df_agg[f'{inh}_ci_upper'] = uppers
 
-# Compute "All" population as sum of subgroups, per Gene / Disease / Pore
+# --- Compute "All" population summary (collapsed across subgroups) ---
 group_cols = ['Gene', 'Disease', 'Pore']
 agg_cols = ['total_count'] + \
            [f'{inh}_affected_counts' for inh in ['ad', 'ar', 'xd', 'xr']] + \
@@ -120,9 +150,9 @@ df_all_rows = (
     .groupby(group_cols, as_index=False)[agg_cols]
     .sum()
 )
-df_all_rows['Cleaned population description'] = 'All'  # no Sex column here (acts across all sexes)
+df_all_rows['Cleaned population description'] = 'All'  # acts across all sexes
 
-# Recalculate confidence intervals for 'All'
+# --- Recalculate confidence intervals for 'All' ---
 for inh in ['ad', 'ar', 'xd', 'xr']:
     lowers, uppers = [], []
     for x, n in zip(df_all_rows[f'{inh}_affected_counts'], df_all_rows['total_count']):
@@ -132,10 +162,16 @@ for inh in ['ad', 'ar', 'xd', 'xr']:
     df_all_rows[f'{inh}_ci_lower'] = lowers
     df_all_rows[f'{inh}_ci_upper'] = uppers
 
-# Append to main df_agg
+# --- Append 'All' back into main aggregated table ---
 df_agg = pd.concat([df_agg, df_all_rows], ignore_index=True)
 
+# --- (Optional) Helper to compute fully combined rows across pore types ---
 def add_combined_row(group_df):
+    """
+    Creates combined rows for each (Gene, Disease) across pore types,
+    adding 'All' population and recomputing percentages and CIs.
+    (Kept here for completeness; not used downstream.)
+    """
     result = []
     for (gene, disease), group in group_df.groupby(['Gene', 'Disease']):
         for pore in ['R9', 'R10', 'All Types']:
@@ -176,19 +212,19 @@ def add_combined_row(group_df):
             result.append(combined)
     return pd.DataFrame(result)
 
-# Build a canonical population order to always show on Y axis
-# Start with everything present in the data, then ensure 'All' is first.
+# --- Define population order for plotting ---
 all_pops = sorted(set(df['Cleaned population description'].dropna().astype(str).tolist()))
 if 'All' in all_pops:
     all_pops.remove('All')
 superpop_order = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS']
 
-# -----------------------------------------
-# Plot with combined Pore+Sex selection
-# (restores dynamic subtitle of total counts)
-# Ensures all populations appear on Y axis (even if empty for a selection)
-# -----------------------------------------
+# --- Build plot for a (Gene, Disease) pair with Pore+Sex dropdowns ---
 def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
+    """
+    Builds a horizontal bar plot showing % pathogenic individuals across populations,
+    with dropdowns for Pore type and Sex. Ensures all populations appear on Y axis.
+    """
+    # Determine inheritance mode for labeling
     raw_inh = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)]['Inheritance']
     inheritance = raw_inh.iloc[0] if not raw_inh.empty else ''
     if inheritance not in ['AD', 'AR', 'XD', 'XR']:
@@ -211,13 +247,17 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
             if sex != 'All Sexes':
                 df_sel = df_sel[df_sel['Sex'] == sex]
 
-            # Ignore any pre-made 'All' rows; recompute per selection
+            # Ignore pre-made 'All' rows; recompute per selection
             df_sel = df_sel[df_sel['Cleaned population description'] != 'All']
-            # If no rows after filtering, still create an empty frame so that Y axis shows all categories
-            grp = df_sel.groupby('Cleaned population description', as_index=False).agg({
-                'total_count': 'sum',
-                f'{inh}_affected_counts': 'sum'
-            }) if not df_sel.empty else pd.DataFrame(columns=['Cleaned population description', 'total_count', f'{inh}_affected_counts'])
+
+            # Aggregate counts for this selection (or empty frame if none)
+            if not df_sel.empty:
+                grp = df_sel.groupby('Cleaned population description', as_index=False).agg({
+                    'total_count': 'sum',
+                    f'{inh}_affected_counts': 'sum'
+                })
+            else:
+                grp = pd.DataFrame(columns=['Cleaned population description', 'total_count', f'{inh}_affected_counts'])
 
             # Fresh 'All' population row for this (pore, sex)
             all_total = grp['total_count'].sum() if not grp.empty else 0
@@ -229,7 +269,7 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
             })
             df_grouped = pd.concat([all_row, grp], ignore_index=True)
 
-            # --- Ensure all populations appear even if missing: reindex to superpop_order ---
+            # Ensure all populations appear (fixed order)
             df_grouped = (
                 df_grouped
                 .set_index('Cleaned population description')
@@ -237,23 +277,28 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
                 .reset_index()
             )
 
-            # Fill missing counts with zero before computing percentages and CIs
+            # Fill missing counts with zero
             for col in ['total_count', f'{inh}_affected_counts']:
                 if col in df_grouped.columns:
                     df_grouped[col] = df_grouped[col].fillna(0)
 
-            # percentages & CIs
+            # Percentages & CIs
             with np.errstate(divide='ignore', invalid='ignore'):
                 df_grouped['percentage'] = np.where(
                     df_grouped['total_count'] > 0,
                     df_grouped[f'{inh}_affected_counts'] / df_grouped['total_count'] * 100,
                     0.0
                 )
-            df_grouped['percentage_display'] = df_grouped['percentage'].apply(lambda x: f"{int(x)}" if x == int(x) else f"{x:.2f}")
+            df_grouped['percentage_display'] = df_grouped['percentage'].apply(
+                lambda x: f"{int(x)}" if x == int(x) else f"{x:.2f}"
+            )
             df_grouped['affected'] = df_grouped[f'{inh}_affected_counts']
 
-            # CI: if n=0, return 0,0 (binomial_ci already handles)
-            ci_bounds = df_grouped.apply(lambda row: binomial_ci(int(row['affected']), int(row['total_count'])), axis=1)
+            # CI per row
+            ci_bounds = df_grouped.apply(
+                lambda row: binomial_ci(int(row['affected']), int(row['total_count'])),
+                axis=1
+            )
             df_grouped['ci_lower'] = [lo for lo, hi in ci_bounds]
             df_grouped['ci_upper'] = [hi for lo, hi in ci_bounds]
             df_grouped['error_plus'] = df_grouped['ci_upper'] - df_grouped['percentage']
@@ -261,7 +306,7 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
 
             trace_map[(pore, sex)] = df_grouped
 
-            # dynamic subtitle (wrapped)
+            # Dynamic subtitle with total counts per population (wrapped)
             pop_lines, line = [], ""
             for _, row in df_grouped.iterrows():
                 part = f"{row['Cleaned population description']}: {int(row['total_count'])}"
@@ -271,22 +316,28 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
                 line += part + ", "
             if line:
                 pop_lines.append(line.rstrip(', '))
-            subtitle_map[(pore, sex)] = "<br>".join([f"<span style='font-size:12px'>{l}</span>" for l in pop_lines])
+            subtitle_map[(pore, sex)] = "<br>".join(
+                [f"<span style='font-size:12px'>{l}</span>" for l in pop_lines]
+            )
 
     if not trace_map:
         return None
 
+    # Build the figure (one trace per (pore, sex))
     fig = go.Figure()
     trace_keys = list(trace_map.keys())
 
-    # one trace per (pore, sex)
     for key in trace_keys:
         df_grouped = trace_map[key]
         fig.add_bar(
             x=df_grouped['percentage'],
             y=df_grouped['Cleaned population description'],
             orientation='h',
-            error_x=dict(array=df_grouped['error_plus'], arrayminus=df_grouped['error_minus'], thickness=1),
+            error_x=dict(
+                array=df_grouped['error_plus'],
+                arrayminus=df_grouped['error_minus'],
+                thickness=1
+            ),
             marker_color="lightblue",
             customdata=np.stack([
                 df_grouped['affected'],
@@ -305,12 +356,12 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
             visible=False
         )
 
-    # default = All Types • All Sexes (if present)
+    # Default selection: All Types • All Sexes (if present)
     default_key = ('All Types', 'All Sexes') if ('All Types', 'All Sexes') in trace_keys else trace_keys[0]
     default_idx = trace_keys.index(default_key)
     fig.data[default_idx].visible = True
 
-    # single dropdown controlling both pore & sex (keeps dynamic subtitle)
+    # Dropdown to switch (pore, sex); also updates dynamic subtitle
     buttons = []
     for i, (pore, sex) in enumerate(trace_keys):
         visible = [j == i for j in range(len(trace_keys))]
@@ -336,6 +387,7 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
             ]
         ))
 
+    # Layout & axes styling
     fig.update_layout(
         width=900, height=500, margin=dict(t=125), bargap=0.5,
         plot_bgcolor='white', showlegend=False, font=dict(color='black'),
@@ -364,21 +416,23 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
                 xanchor="center"
             )
         ],
-        xaxis=dict(range=[0, 100], tickmode='linear', tick0=0, dtick=10,
-                   ticks='outside', showline=True, linecolor='black', linewidth=1,
-                   zeroline=False, tickfont=dict(color='black'),
-                   titlefont=dict(color='black'), title="Pathogenic Genotypes (%)"),
+        xaxis=dict(
+            range=[0, 100], tickmode='linear', tick0=0, dtick=10,
+            ticks='outside', showline=True, linecolor='black', linewidth=1,
+            zeroline=False, tickfont=dict(color='black'),
+            titlefont=dict(color='black'), title="Pathogenic Genotypes (%)"
+        ),
         yaxis=dict(
             title="",
             showline=True,
             linecolor='black',
             categoryorder='array',
-            categoryarray=superpop_order   # <-- force all populations to show in fixed order
+            categoryarray=superpop_order   # force all populations in fixed order
         )
     )
     return fig
 
-# --- GENERATE PLOTS ---
+# --- Generate plots ---
 printed = False
 for gene in df_agg['Gene'].unique():
     for disease in df_agg[df_agg['Gene'] == gene]['Disease'].unique():
@@ -393,15 +447,20 @@ for gene in df_agg['Gene'].unique():
             safe_gene = re.sub(r'[\\/]', '_', gene)
             safe_disease = re.sub(r'[\\/]', '_', disease)
 
-            print(f"Plot generated for: {gene} / {disease}")
-            fig.show()  # For visual testing (or comment this if you only want to print)
+            if TEST_MODE:
+                print(f"Plot generated for: {gene} / {disease}")
+                fig.show()  # only preview in test mode
 
             if not TEST_MODE:
                 fig.write_html(os.path.join(OUTPUT_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html"))
             else:
                 printed = True
-                break  # Only do one plot in test mode
+                break  # Only one plot in test mode
     if TEST_MODE and printed:
         break
 
-print("--- Test completed ---" if TEST_MODE else "--- Saved all plots ---")
+# --- Finished ---
+if TEST_MODE:
+    print("--- Test mode ON: Test completed ---")
+else:
+    print("--- Done ---")
