@@ -30,12 +30,13 @@ BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 SEQ_DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex4.xlsx"
 PORE_PATH = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary_Sample_ID_Pore.csv"
-OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Plots/83_loci_503"
+OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Plots"
 
-# Make sure output directory exists
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Normal mode: save into PNG and HTML subfolders
+OUTPUT_DIR_83_loci_503 = os.path.join(OUTPUT_DIR, "83_loci_503")
+os.makedirs(OUTPUT_DIR_83_loci_503, exist_ok=True)
 
-# If test mode, use a subfolder for test outputs
+# If test mode: override to a single test_outputs folder
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
