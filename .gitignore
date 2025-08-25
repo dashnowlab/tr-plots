@@ -3,4 +3,6 @@
 *.json
 *.csv
 *.xlsx
-*.vcf*
+*.vcf*Plots/Ancestry_Plots/*.html
+Plots/Allele_Length_Boxplots/*.html
+Plots/Tandem_Repeats_Plots/*.html
