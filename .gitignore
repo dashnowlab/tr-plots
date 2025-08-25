@@ -6,3 +6,7 @@
 *.vcf*Plots/Ancestry_Plots/*.html
 Plots/Allele_Length_Boxplots/*.html
 Plots/Tandem_Repeats_Plots/*.html
+# generated plot reports
+Plots/Ancestry_Plots/*.html
+Plots/Allele_Length_Boxplots/*.html
+Plots/Tandem_Repeats_Plots/*.html
