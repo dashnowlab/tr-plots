@@ -33,6 +33,11 @@ OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Plots/83_loci_503"
 # Make sure output directory exists
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+# If test mode, use a subfolder for test outputs
+if TEST_MODE:
+    OUTPUT_PATH = os.path.join(OUTPUT_PATH, "test_outputs")
+    os.makedirs(OUTPUT_PATH, exist_ok=True)
+
 # --- Load main dataset ---
 df = pd.read_excel(DATA_PATH)
 
