@@ -9,17 +9,18 @@
 *.vcf
 *.vcf.gz
 *.tbi
+*.png
 
 # Ignore generated HTML reports
 Results/Plots/Ancestry_Plots/*.html
 Results/Plots/Allele_Length_Boxplots/*.html
 Results/Plots/Tandem_Repeats_Plots/*.html
 
-# Ignore contents of these folders
+# Ignore contents of Data and Results by default
 Data/**
 Results/**
 
-# But keep their placeholders
+# BUT keep placeholders so structure shows on GitHub
 !Data/README.md
 !Results/README.md
 !Code/**
