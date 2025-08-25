@@ -1,10 +1,25 @@
+# macOS system files
 .DS_Store
+
+# Ignore heavy/raw files
 *.tsv
 *.json
 *.csv
 *.xlsx
-*.vcf*/Plots/Ancestry_Plots/*.html
-/Plots/Allele_Length_Boxplots/*.html
-/Plots/Tandem_Repeats_Plots/*.html
-/Datasets/
-/Data/
+*.vcf
+*.vcf.gz
+*.tbi
+
+# Ignore generated HTML reports
+Results/Plots/Ancestry_Plots/*.html
+Results/Plots/Allele_Length_Boxplots/*.html
+Results/Plots/Tandem_Repeats_Plots/*.html
+
+# Ignore contents of these folders
+Data/**
+Results/**
+
+# But keep their placeholders
+!Data/README.md
+!Results/README.md
+!Code/**
