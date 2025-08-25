@@ -21,7 +21,9 @@ import numpy as np
 from statsmodels.stats import proportion
 
 # --- TEST MODE ---
-TEST_MODE = True   # Toggle this flag for quick testing (only one plot generated)
+TEST_MODE = True                 # Toggle this flag for quick testing (only one plot generated)
+TEST_LIMIT = 1                   # How many (gene,disease) plots in test mode
+SAVE_TEST_OUTPUTS = True         # Toggle saving plots when in test mode
 
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
@@ -438,7 +440,7 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
     return fig
 
 # --- Generate plots ---
-printed = False
+made = 0
 for gene in df_agg['Gene'].unique():
     for disease in df_agg[df_agg['Gene'] == gene]['Disease'].unique():
         sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
@@ -448,20 +450,31 @@ for gene in df_agg['Gene'].unique():
             continue
 
         fig = create_horizontal_bar_plot(sub_df.copy(), gene, disease, df)
-        if fig:
-            safe_gene = re.sub(r'[\\/]', '_', gene)
-            safe_disease = re.sub(r'[\\/]', '_', disease)
+        if not fig:
+            continue
 
-            if TEST_MODE:
-                print(f"Plot generated for: {gene} / {disease}")
-                fig.show()  # only preview in test mode
+        safe_gene = re.sub(r'[\\/]', '_', gene)
+        safe_disease = re.sub(r'[\\/]', '_', disease)
+        html_path = os.path.join(OUTPUT_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html")
 
-            if not TEST_MODE:
-                fig.write_html(os.path.join(OUTPUT_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html"))
-            else:
-                printed = True
-                break  # Only one plot in test mode
-    if TEST_MODE and printed:
+        if TEST_MODE:
+            # Preview only in test mode
+            print(f"Previewing: {gene} / {disease}")
+            fig.show()
+
+            # Optional save in test mode
+            if SAVE_TEST_OUTPUTS:
+                print(f"Saving: {gene} / {disease}")
+                fig.write_html(html_path)
+
+            made += 1
+            if made >= TEST_LIMIT:
+                break
+        else:
+            # Non-test mode: save quietly (no printing/showing)
+            fig.write_html(html_path)
+
+    if TEST_MODE and made >= TEST_LIMIT:
         break
 
 # --- Finished ---
