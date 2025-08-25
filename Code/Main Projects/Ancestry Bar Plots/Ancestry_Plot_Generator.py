@@ -26,7 +26,7 @@ TEST_MODE = True   # Toggle this flag for quick testing (only one plot generated
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
-DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex4.xlsx"
+SEQ_DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex4.xlsx"
 PORE_PATH = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary_Sample_ID_Pore.csv"
 OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Plots/83_loci_503"
 
@@ -39,7 +39,7 @@ if TEST_MODE:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 # --- Load main dataset ---
-df = pd.read_excel(DATA_PATH)
+df = pd.read_excel(SEQ_DATA_PATH)
 
 # --- Merge pore information (R9 / R10) ---
 pore_df = pd.read_csv(PORE_PATH)
