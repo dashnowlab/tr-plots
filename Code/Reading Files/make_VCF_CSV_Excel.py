@@ -14,7 +14,7 @@ import csv
 import pandas as pd
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/Anschutz"
+BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 VCF_PATH = f"{BASE_DIR}/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 

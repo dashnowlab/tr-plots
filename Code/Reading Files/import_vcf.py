@@ -14,7 +14,7 @@ import pysam
 import pandas as pd
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/Anschutz"
+BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 # Pick one dataset
 VCF_PATH = f"{BASE_DIR}/Datasets/503_samples/1000g-ONT-STRchive-503Samples.vcf.gz"

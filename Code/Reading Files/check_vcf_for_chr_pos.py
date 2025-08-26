@@ -13,7 +13,7 @@ import pysam
 import os
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/Anschutz"
+BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 # Choose the dataset of interest
 VCF_PATH = f"{BASE_DIR}/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
