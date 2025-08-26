@@ -21,8 +21,8 @@ import pandas as pd
 import re
 
 # --- TEST MODE ---
-TEST_MODE = True          # Quick testing: preview, limit work
-TEST_LIMIT = 5            # Number of VCF records to process in test mode
+TEST_MODE = False          # Quick testing: preview, limit work
+TEST_LIMIT = 3            # Number of VCF records to process in test mode
 SAVE_TEST_OUTPUTS = True  # If True, also save files when TEST_MODE is on
 
 # --- File locations ---
@@ -30,18 +30,21 @@ BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Tandem_Repeats_Plots"
+OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Tandem_Repeats_Bar_Plots")
 
-# Normal mode: Create subfolders for html and png outputs
-OUTPUT_HTML_DIR = os.path.join(OUTPUT_DIR, "HTML")
-OUTPUT_PNG_DIR = os.path.join(OUTPUT_DIR, "PNG")
-os.makedirs(OUTPUT_HTML_DIR, exist_ok=True)
-os.makedirs(OUTPUT_PNG_DIR, exist_ok=True)
-
-# If test mode: override to a single test_outputs folder
 if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
+    # In test mode: just one folder, no subfolders
+    OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    OUTPUT_HTML_DIR = OUTPUT_DIR
+    OUTPUT_PNG_DIR  = OUTPUT_DIR
+else:
+    # Normal mode: structured HTML/PNG subfolders
+    OUTPUT_DIR = OUTPUT_BASE
+    OUTPUT_HTML_DIR = os.path.join(OUTPUT_DIR, "HTML")
+    OUTPUT_PNG_DIR  = os.path.join(OUTPUT_DIR, "PNG")
+    os.makedirs(OUTPUT_HTML_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_PNG_DIR,  exist_ok=True)
 
 # --- Load the metadata file ---
 with open(METADATA_PATH, "r") as file:
@@ -226,17 +229,15 @@ for i, record in enumerate(vcf_in.fetch()):
 
     # --- Save / Preview ---
     safe_gene = re.sub(r'[\\/]', '_', gene)
-    png_path = os.path.join(OUTPUT_DIR, f"{safe_gene}_{chrom}_{pos}_allele_dist.png")
-    html_path = os.path.join(OUTPUT_DIR, f"{safe_gene}_{chrom}_{pos}_allele_dist.html")
+    html_path = os.path.join(OUTPUT_HTML_DIR, f"{safe_gene}_{chrom}_{pos}_allele_dist.html")
+    png_path  = os.path.join(OUTPUT_PNG_DIR,  f"{safe_gene}_{chrom}_{pos}_allele_dist.png")
 
     if TEST_MODE:
         # Preview in test mode
-        print(f"Previewing: {gene} {chrom}:{pos}")
         fig.show()
 
         # Optionally save in test mode
         if SAVE_TEST_OUTPUTS:
-            print(f"Saving: {gene} {chrom}:{pos}")
             fig.write_html(html_path)
             fig.write_image(png_path, format="png", width=900, height=500, scale=2)
     else:
