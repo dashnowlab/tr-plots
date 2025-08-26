@@ -1,55 +1,67 @@
+"""
+---------------------------------------------
+ Script: VCF → Long-Format Table
+ Purpose:
+   - Reads an indexed VCF
+   - Flattens VARIANT x SAMPLE data into long format
+   - Optionally includes INFO and FORMAT fields
+   - Saves the result as a CSV
+---------------------------------------------
+"""
+
+import os
 import pysam
 import pandas as pd
 
-# Path to the VCF file
-# VCF_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/68_samples/100HPRC.trgt-v0.8.0.STRchive.sorted-68Samples.vcf.gz"
-# VCF_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/88_samples/Datasets/88_samples/1000g-ONT-88Samples.vcf.gz"
-VCF_PATH = "/Users/annelisethorn/Documents/Anschutz/Datasets/503_samples/1000g-ONT-STRchive-503Samples.vcf.gz"
+# --- File locations ---
+BASE_DIR = "/Users/annelisethorn/Documents/Anschutz"
 
-# Open the indexed VCF file
+# Pick one dataset
+VCF_PATH = f"{BASE_DIR}/Datasets/503_samples/1000g-ONT-STRchive-503Samples.vcf.gz"
+
+OUTPUT_DIR = os.path.join(BASE_DIR, "Code/Matching Files/CSVs")
+os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_CSV = os.path.join(OUTPUT_DIR, "vcf_long_format.csv")
+
+# --- Open VCF (requires .tbi/.csi index) ---
 vcf_in = pysam.VariantFile(VCF_PATH)
-
 samples = list(vcf_in.header.samples)
 
-# Collect long-format records
+# --- Collect long-format rows ---
 records = []
-
 for record in vcf_in.fetch():
+    # Core variant fields
     variant_info = {
-        "CHROM": record.contig,
-        "POS": record.pos,
-        "ID": record.id,
-        "REF": record.ref,
-        "ALT": ','.join(str(alt) for alt in record.alts),
-        "QUAL": record.qual,
-        "FILTER": ';'.join(record.filter.keys()),
+        "CHROM": record.chrom,                                    # chromosome
+        "POS": record.pos,                                        # 1-based position
+        "ID": record.id,                                          # variant ID (can be None)
+        "REF": record.ref,                                        # reference allele
+        "ALT": ",".join(map(str, record.alts or [])),             # alt alleles joined
+        "QUAL": record.qual,                                      # quality (float or None)
+        "FILTER": ";".join(record.filter.keys()) if record.filter else "",  # filters
     }
 
-    # Include INFO fields if desired
+    # Include INFO fields
     for key, value in record.info.items():
         variant_info[key] = value
 
-    # For each sample, create a separate row
+    # One row per sample with FORMAT fields expanded
     for sample in samples:
-        sample_data = record.samples[sample]
         row = variant_info.copy()
         row["SAMPLE"] = sample
 
+        sample_data = record.samples[sample]
         for fmt_key, fmt_value in sample_data.items():
             row[fmt_key] = fmt_value
 
         records.append(row)
 
-# Convert to DataFrame
+# --- To DataFrame ---
 df_long = pd.DataFrame(records)
 
-# Optional: Set multi-index for fast access
-df_long.set_index(["CHROM", "POS", "SAMPLE"], inplace=True)
+# Optional: multi-index for fast slicing by locus + sample
+# df_long.set_index(["CHROM", "POS", "SAMPLE"], inplace=True)
 
-# # Preview
-# print(df_long.head(600))
-
-# Save to CSV
-df_long.to_csv("vcf_long_format2.csv", index=True)
-
-print(f'--- Done ---')
+# --- Save ---
+df_long.to_csv(OUTPUT_CSV, index=False)
+print(f"--- Done ---")

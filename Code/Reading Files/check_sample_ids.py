@@ -1,28 +1,43 @@
-import pysam
+"""
+---------------------------------------------
+ Script: Extract Sample_ID + Pore
+ Purpose:
+   - Reads the 1KGP/ONT sample summary CSV
+   - Keeps only Sample_ID and Pore columns
+   - Saves a clean CSV for downstream merges
+   - (VCF path is validated/opened to ensure consistency of dataset paths)
+---------------------------------------------
+"""
+
+import os
 import pandas as pd
+import pysam
 
-# Path to your uncompressed VCF file
-vcf_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/68_loci_100_samples/100HPRC.trgt-v0.8.0.STRchive.sorted-68_loci_100_samples.vcf.gz"
-# vcf_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/83_loci_88_samples/1000g-ONT-83_loci_88_samples.vcf.gz"
-# vcf_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+# --- File locations ---
+BASE_DIR = "/Users/annelisethorn/Documents/Anschutz"
 
-# Path to sample ancestry, technology, etc. file
-csv_path = '/Users/annelisethorn/Documents/Anschutz/Datasets/1KGP_ONT_500_Summary - Sheet1.csv'
+VCF_PATH   = f"{BASE_DIR}/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+INPUT_CSV  = f"{BASE_DIR}/Datasets/1KGP_ONT_500_Summary - Sheet1.csv"
+OUTPUT_DIR = f"{BASE_DIR}/Datasets"
+OUTPUT_CSV = os.path.join(OUTPUT_DIR, "1KGP_ONT_500_Summary_Sample_ID_Pore.csv")
 
-# Open VCF
-vcf = pysam.VariantFile(vcf_path)
+# Ensure output directory exists
+os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-# Open CSV the second row is the header
-# Read the CSV file
-df = pd.read_csv(csv_path, header=1)
+# --- Validate/open VCF (not used further; just to confirm path is correct) ---
+_ = pysam.VariantFile(VCF_PATH)
 
-# print(df.head())
+# --- Load the CSV (header row is the 2nd row in the file) ---
+df = pd.read_csv(INPUT_CSV, header=1)
 
-# Drop all columns that aren't 'Sample_ID' or 'Pore'
-df = df[['Sample_ID', 'Pore']]
+# --- Keep only needed columns ---
+required_cols = ["Sample_ID", "Pore"]
+missing = [c for c in required_cols if c not in df.columns]
+if missing:
+    raise KeyError(f"Missing expected columns in input CSV: {missing}")
 
-# print(df.head())
+df = df[required_cols]
 
-# Export the DataFrame to a CSV file
-df.to_csv('/Users/annelisethorn/Documents/Anschutz/Datasets/1KGP_ONT_500_Summary_Sample_ID_Pore.csv', index=False)
-
+# --- Save cleaned CSV ---
+df.to_csv(OUTPUT_CSV, index=False)
+print(f"--- Done ---")

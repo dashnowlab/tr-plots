@@ -1,27 +1,40 @@
+"""
+---------------------------------------------
+ Script: VCF (gz) → CSV + Excel
+ Purpose:
+   - Reads a compressed VCF (.vcf.gz)
+   - Writes a flat CSV of the VCF table (header + rows)
+   - Exports the CSV to Excel (.xlsx)
+---------------------------------------------
+"""
+
+import os
 import gzip
 import csv
 import pandas as pd
 
-# vcf_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/68_loci_100_samples/100HPRC.trgt-v0.8.0.STRchive.sorted-68_loci_100_samples.vcf.gz"
-# vcf_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/83_loci_88_samples/1000g-ONT-83_loci_88_samples.vcf.gz"
-vcf_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+# --- File locations ---
+BASE_DIR = "/Users/annelisethorn/Documents/Anschutz"
 
-# csv_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/CSVs/68_loci_100_samples_CSV.csv"
-# csv_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/CSVs/83_loci_88_samples_CSV.csv"
-csv_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/CSVs/83_loci_503_samples_CSV.csv"
+VCF_PATH = f"{BASE_DIR}/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 
-# excel_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/Excels/68_loci_100_samples_Excel.xlsx"
-# excel_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/Excels/83_loci_88_samples_Excel.xlsx"
-excel_path = "/Users/annelisethorn/Documents/Anschutz/Datasets/Excels/83_loci_503_samples_Excel.xlsx"
+CSV_DIR   = os.path.join(BASE_DIR, "Datasets/CSVs")
+EXCEL_DIR = os.path.join(BASE_DIR, "Datasets/Excels")
+os.makedirs(CSV_DIR, exist_ok=True)
+os.makedirs(EXCEL_DIR, exist_ok=True)
 
-# Open the compressed VCF file
-with gzip.open(vcf_path, 'rt') as vcf_in, open(csv_path, 'w', newline='') as csv_out:
+# Output filenames
+CSV_PATH   = os.path.join(CSV_DIR,   "83_loci_503_samples_CSV.csv")
+EXCEL_PATH = os.path.join(EXCEL_DIR, "83_loci_503_samples_Excel.xlsx")
+
+# --- Convert VCF (gz) to CSV ---
+with gzip.open(VCF_PATH, "rt") as vcf_in, open(CSV_PATH, "w", newline="") as csv_out:
     writer = csv.writer(csv_out)
 
     for line in vcf_in:
         line = line.strip()
         if line.startswith("##"):
-            continue
+            continue  # skip meta-information lines
         elif line.startswith("#CHROM"):
             header = line.lstrip("#").split("\t")
             writer.writerow(header)
@@ -29,7 +42,9 @@ with gzip.open(vcf_path, 'rt') as vcf_in, open(csv_path, 'w', newline='') as csv
             fields = line.split("\t")
             writer.writerow(fields)
 
-# Save as Excel
-df = pd.read_csv(csv_path)
-df.to_excel(excel_path, index=False)
-print(f'--- Done ---')
+# --- Save CSV to Excel ---
+df = pd.read_csv(CSV_PATH)
+df.to_excel(EXCEL_PATH, index=False)
+
+print(f"--- Saved CSV ---")
+print(f"--- Saved XLSX ---")
