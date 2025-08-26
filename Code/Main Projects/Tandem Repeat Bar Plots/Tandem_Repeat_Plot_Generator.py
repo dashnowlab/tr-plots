@@ -32,10 +32,13 @@ VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRch
 METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
 OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Tandem_Repeats_Plots"
 
-# Make sure the output folder exists
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Normal mode: Create subfolders for html and png outputs
+OUTPUT_HTML_DIR = os.path.join(OUTPUT_DIR, "HTML")
+OUTPUT_PNG_DIR = os.path.join(OUTPUT_DIR, "PNG")
+os.makedirs(OUTPUT_HTML_DIR, exist_ok=True)
+os.makedirs(OUTPUT_PNG_DIR, exist_ok=True)
 
-# If test mode, use a subfolder for test outputs
+# If test mode: override to a single test_outputs folder
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
     os.makedirs(OUTPUT_DIR, exist_ok=True)

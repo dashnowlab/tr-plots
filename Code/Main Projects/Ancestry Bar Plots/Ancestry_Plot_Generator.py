@@ -30,18 +30,21 @@ BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 SEQ_DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex.xlsx"
 PORE_PATH = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary_Sample_ID_Pore.csv"
-OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Bar_Plots"
+OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Ancestry_Bar_Plots")
 
-# Normal mode: Create subfolders for html and png outputs
-OUTPUT_HTML_DIR = os.path.join(OUTPUT_DIR, "HTML")
-OUTPUT_PNG_DIR = os.path.join(OUTPUT_DIR, "PNG")
-os.makedirs(OUTPUT_HTML_DIR, exist_ok=True)
-os.makedirs(OUTPUT_PNG_DIR, exist_ok=True)
-
-# If test mode: override to a single test_outputs folder
 if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
+    # In test mode: just one folder, no subfolders
+    OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    OUTPUT_HTML_DIR = OUTPUT_DIR
+    OUTPUT_PNG_DIR  = OUTPUT_DIR
+else:
+    # Normal mode: structured HTML/PNG subfolders
+    OUTPUT_DIR = OUTPUT_BASE
+    OUTPUT_HTML_DIR = os.path.join(OUTPUT_DIR, "HTML")
+    OUTPUT_PNG_DIR  = os.path.join(OUTPUT_DIR, "PNG")
+    os.makedirs(OUTPUT_HTML_DIR, exist_ok=True)
+    os.makedirs(OUTPUT_PNG_DIR,  exist_ok=True)
 
 # --- Load main dataset ---
 df = pd.read_excel(SEQ_DATA_PATH)
