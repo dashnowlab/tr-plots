@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 # --- TEST MODE ---
-TEST_MODE = True          # Toggle for quick checks
+TEST_MODE = False          # Toggle for quick checks
 TEST_LIMIT = 100        # Number of rows to process in test mode
 SAVE_TEST_OUTPUTS = True  # If True, write files in test mode; otherwise just preview
 
@@ -31,7 +31,7 @@ JSON_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
 TSV_PATH  = f"{BASE_DIR}/Data/Other Data/sample_information.tsv"
 
 # Output roots (normal mode)
-OUTPUT_BASE     = f"{BASE_DIR}/Code/Matching Files"
+OUTPUT_BASE     = f"{BASE_DIR}/Results/Matching Files Outputs"
 OUTPUT_DIR_CSV  = os.path.join(OUTPUT_BASE, "CSVs")
 OUTPUT_DIR_XLSX = os.path.join(OUTPUT_BASE, "Excels")
 os.makedirs(OUTPUT_DIR_CSV, exist_ok=True)

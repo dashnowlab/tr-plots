@@ -18,7 +18,7 @@ import pysam
 import pandas as pd
 
 # --- TEST MODE ---
-TEST_MODE = True                 # Quick testing: process only some VCF records
+TEST_MODE = False                 # Quick testing: process only some VCF records
 TEST_LIMIT = 100                 # Max VCF variants to process in test mode
 SAVE_TEST_OUTPUTS = True         # Save files in test mode if True
 
@@ -29,16 +29,22 @@ VCF_PATH  = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRc
 JSON_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
 CSV_PATH  = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary - Sheet1.csv"
 
-OUTPUT_DIR = f"{BASE_DIR}/Results"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+# Output roots (normal mode)
+OUTPUT_BASE     = f"{BASE_DIR}/Results/Matching Files Outputs"
+OUTPUT_DIR_CSV  = os.path.join(OUTPUT_BASE, "CSVs")
+OUTPUT_DIR_XLSX = os.path.join(OUTPUT_BASE, "Excels")
+os.makedirs(OUTPUT_DIR_CSV, exist_ok=True)
+os.makedirs(OUTPUT_DIR_XLSX, exist_ok=True)
 
 # If test mode, write into a single test_outputs folder
 if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
+    OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-CSV_OUT  = os.path.join(OUTPUT_DIR, "vcf_locus_sample_table.csv")
-XLSX_OUT = os.path.join(OUTPUT_DIR, "vcf_locus_sample_table.xlsx")
+    CSV_OUT  = os.path.join(OUTPUT_DIR, "vcf_locus_sample_table.csv")
+    XLSX_OUT = os.path.join(OUTPUT_DIR, "vcf_locus_sample_table.xlsx")
+else:
+    CSV_OUT  = os.path.join(OUTPUT_DIR_CSV, "vcf_locus_sample_table.csv")
+    XLSX_OUT = os.path.join(OUTPUT_DIR_XLSX, "vcf_locus_sample_table.xlsx")
 
 # --- Load population info (CSV) ---
 sample_info = pd.read_csv(CSV_PATH)
