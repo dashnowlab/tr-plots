@@ -18,7 +18,7 @@ import os
 import ast
 
 # --- TEST MODE ---
-TEST_MODE = True              # Toggle this flag for quick testing (preview only)
+TEST_MODE = False              # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 1                # How many (gene, disease) plots to generate in test mode
 SAVE_TEST_OUTPUTS = True      # Toggle saving plots when in test mode
 

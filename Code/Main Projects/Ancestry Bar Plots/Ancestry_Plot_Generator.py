@@ -21,20 +21,22 @@ import numpy as np
 from statsmodels.stats import proportion
 
 # --- TEST MODE ---
-TEST_MODE = True                 # Toggle this flag for quick testing (only one plot generated)
+TEST_MODE = True                # Toggle this flag for quick testing (only one plot generated)
 TEST_LIMIT = 1                   # How many (gene,disease) plots in test mode
 SAVE_TEST_OUTPUTS = True         # Toggle saving plots when in test mode
 
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
-SEQ_DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex4.xlsx"
+SEQ_DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex.xlsx"
 PORE_PATH = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary_Sample_ID_Pore.csv"
-OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Plots"
+OUTPUT_DIR = f"{BASE_DIR}/Results/Plots/Ancestry_Bar_Plots"
 
-# Normal mode: save into PNG and HTML subfolders
-OUTPUT_DIR_83_loci_503 = os.path.join(OUTPUT_DIR, "83_loci_503")
-os.makedirs(OUTPUT_DIR_83_loci_503, exist_ok=True)
+# Normal mode: Create subfolders for html and png outputs
+OUTPUT_HTML_DIR = os.path.join(OUTPUT_DIR, "HTML")
+OUTPUT_PNG_DIR = os.path.join(OUTPUT_DIR, "PNG")
+os.makedirs(OUTPUT_HTML_DIR, exist_ok=True)
+os.makedirs(OUTPUT_PNG_DIR, exist_ok=True)
 
 # If test mode: override to a single test_outputs folder
 if TEST_MODE:
@@ -456,7 +458,13 @@ for gene in df_agg['Gene'].unique():
 
         safe_gene = re.sub(r'[\\/]', '_', gene)
         safe_disease = re.sub(r'[\\/]', '_', disease)
-        html_path = os.path.join(OUTPUT_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html")
+
+        html_path = os.path.join(OUTPUT_HTML_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html")
+        png_path  = os.path.join(OUTPUT_PNG_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.png")
+
+        # Save files
+        fig.write_html(html_path)
+        fig.write_image(png_path, scale=2)   # scale=2 makes higher resolution
 
         if TEST_MODE:
             # Preview only in test mode
