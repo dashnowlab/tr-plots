@@ -16,10 +16,10 @@ import pandas as pd
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
-VCF_PATH = f"{BASE_DIR}/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 
-CSV_DIR   = os.path.join(BASE_DIR, "Datasets/CSVs")
-EXCEL_DIR = os.path.join(BASE_DIR, "Datasets/Excels")
+CSV_DIR   = os.path.join(BASE_DIR, "Results/Reading Files Outputs/make_VCF_CSV_Excel_output")
+EXCEL_DIR = os.path.join(BASE_DIR, "Results/Reading Files Outputs/make_VCF_CSV_Excel_output")
 os.makedirs(CSV_DIR, exist_ok=True)
 os.makedirs(EXCEL_DIR, exist_ok=True)
 

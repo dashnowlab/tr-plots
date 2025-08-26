@@ -13,8 +13,8 @@ import os
 
 # --- File locations ---
 URL = "ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/working/20130606_sample_info/20130606_sample_info.txt"
-OUTPUT_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Datasets/1000Genomes"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "20130606_sample_info.txt")
+OUTPUT_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Data/Other Data"
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "1000_Genomes_20130606_sample_info.txt")
 
 # --- Prepare output directory ---
 os.makedirs(OUTPUT_DIR, exist_ok=True)

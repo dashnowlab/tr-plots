@@ -11,7 +11,7 @@ import csv
 import os
 
 # --- File location ---
-TSV_PATH = "/Users/annelisethorn/Documents/GitHub/tr-plots/Datasets/sample_information.tsv"
+TSV_PATH = "/Users/annelisethorn/Documents/GitHub/tr-plots/Data/Other Data/sample_information.tsv"
 
 # --- Helper: read TSV into list of rows ---
 def read_tsv(file_path):

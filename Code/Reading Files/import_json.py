@@ -13,7 +13,7 @@ import json
 import os
 
 # --- File location ---
-JSON_PATH = "/Users/annelisethorn/Documents/GitHub/tr-plots/Datasets/STRchive-loci.json"
+JSON_PATH = "/Users/annelisethorn/Documents/GitHub/tr-plots/Data/Other Data/STRchive-loci.json"
 
 # --- Load JSON metadata ---
 with open(JSON_PATH, "r") as file:

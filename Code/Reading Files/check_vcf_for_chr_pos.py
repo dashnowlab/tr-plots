@@ -16,7 +16,7 @@ import os
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 # Choose the dataset of interest
-VCF_PATH = f"{BASE_DIR}/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+VCF_PATH = f"{BASE_DIR}//Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 
 # --- User-defined loci of interest (chromosome, position) ---
 USER_LOCI = {

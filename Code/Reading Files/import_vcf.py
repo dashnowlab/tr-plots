@@ -16,10 +16,11 @@ import pandas as pd
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
-# Pick one dataset
-VCF_PATH = f"{BASE_DIR}/Datasets/503_samples/1000g-ONT-STRchive-503Samples.vcf.gz"
+# Dataset
+VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 
-OUTPUT_DIR = os.path.join(BASE_DIR, "Code/Matching Files/CSVs")
+# Output
+OUTPUT_DIR = os.path.join(BASE_DIR, "Results/Reading Files Outputs/import_vcf_output")
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "vcf_long_format.csv")
 

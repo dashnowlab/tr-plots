@@ -13,9 +13,9 @@ import os
 from bs4 import BeautifulSoup
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots"
-INPUT_DIR = os.path.join(BASE_DIR, "83_loci_503")
-OUTPUT_DIR = os.path.join(BASE_DIR, "83_loci_503")
+BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Results/Plots/Ancestry_Bar_Plots/"
+INPUT_DIR = os.path.join(BASE_DIR, "HTML")
+OUTPUT_DIR = os.path.join(INPUT_DIR, "one_file")
 
 # --- Initialize an empty HTML document ---
 output_doc = BeautifulSoup("<html><body></body></html>", "html.parser")

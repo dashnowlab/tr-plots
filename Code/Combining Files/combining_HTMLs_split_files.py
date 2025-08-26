@@ -15,9 +15,9 @@ import math
 from bs4 import BeautifulSoup
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Plots/Ancestry_Plots/HTML"
-INPUT_DIR = os.path.join(BASE_DIR, "83_loci_503_samples_People_AllColumn")
-OUTPUT_DIR = os.path.join(INPUT_DIR, "SplitFiles")
+BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Results/Plots/Ancestry_Bar_Plots/"
+INPUT_DIR = os.path.join(BASE_DIR, "HTML")
+OUTPUT_DIR = os.path.join(INPUT_DIR, "split_files")
 
 # --- Prepare output directory ---
 os.makedirs(OUTPUT_DIR, exist_ok=True)

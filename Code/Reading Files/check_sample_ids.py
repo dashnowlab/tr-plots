@@ -16,9 +16,9 @@ import pysam
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
-VCF_PATH   = f"{BASE_DIR}/Datasets/83_loci_503_samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
-INPUT_CSV  = f"{BASE_DIR}/Datasets/1KGP_ONT_500_Summary - Sheet1.csv"
-OUTPUT_DIR = f"{BASE_DIR}/Datasets"
+VCF_PATH   = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+INPUT_CSV  = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary - Sheet1.csv"
+OUTPUT_DIR = f"{BASE_DIR}/Results/Reading Files Outputs/check_sample_ids_output"
 OUTPUT_CSV = os.path.join(OUTPUT_DIR, "1KGP_ONT_500_Summary_Sample_ID_Pore.csv")
 
 # Ensure output directory exists
