@@ -31,7 +31,7 @@ BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Tandem_Repeats_Bar_Plots2")
+OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Tandem_Repeats_Bar_Plots")
 
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
