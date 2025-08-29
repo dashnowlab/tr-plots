@@ -1,41 +1,40 @@
-"""
----------------------------------------------
-# Script: Allele Length Violin + Beeswarm Plot Generator
-# Purpose:
-#   - Reads a CSV of allele lengths with ancestry and metadata
-#   - Flags pathogenic individuals using per-locus thresholds
-#   - Aggregates counts and computes % pathogenic by population
-#   - Builds horizontal violin + beeswarm plots of allele length by population
-#   - Saves plots as PNG and HTML 
-#   - In test mode, previews a single plot for quick checks
----------------------------------------------
-"""
-
 import os
 import re
 import ast
 import numpy as np
 import pandas as pd
 import plotly.express as px
+import plotly.io as pio
 
-# --- TEST MODE ---
-TEST_MODE = False              
-TEST_LIMIT = 1               
-SAVE_TEST_OUTPUTS = True      
+# --- TEST MODE / RENDERER ---
+TEST_MODE = True               # set True if you want a quick on-screen preview
+TEST_LIMIT = 3
+SAVE_TEST_OUTPUTS = True
+pio.renderers.default = "browser"  # ensures fig.show() opens from terminal
 
 # --- VISUAL OPTIONS ---
-COLOR_BY_PATHOGENIC = True    
-POINT_SIZE = 6                
-POINT_OPACITY = 0.75          
-VIOLIN_SHOW_BOX = True        
-JITTER = 0.35                 
+POINT_SIZE = 6
+POINT_OPACITY = 0.75
+VIOLIN_SHOW_BOX = True
+JITTER = 0.35
+INCLUDE_AGGREGATE_ALL = True   # <-- add an "All" super-pop row per (Gene,Disease)
+
+# --- POPULATION PALETTE (1kG-style) ---
+POP_COLOR = {
+    'EUR': '#1f77b4',  # blue
+    'EAS': '#2ca02c',  # green
+    'SAS': '#9467bd',  # purple
+    'AMR': '#d62728',  # red
+    'AFR': '#ff7f0e',  # orange/yellow
+    'All': '#7f7f7f',  # gray for aggregates
+}
+# Put "All" at the top, then a readable order
+SUPERPOP_ORDER = ['AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'All', 'Unknown']
 
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/"
-
 DATA_PATH = f"{BASE_DIR}Data/Other Data/83_loci_503_samples_withancestrycolumns.csv"
 OUTPUT_DIR = f"{BASE_DIR}Results/Plots/Allele_Length_Violin_Swarm"
-
 OUTPUT_DIR_PNG = os.path.join(OUTPUT_DIR, "PNG")
 OUTPUT_DIR_HTML = os.path.join(OUTPUT_DIR, "HTML")
 os.makedirs(OUTPUT_DIR_PNG, exist_ok=True)
@@ -50,72 +49,93 @@ if TEST_MODE:
 # --- Load data ---
 df = pd.read_csv(DATA_PATH)
 
-# --- Flag pathogenic individuals ---
-df['Is pathogenic'] = (
-    (df['Allele length'] >= df['Pathogenic min']) &
-    (df['Allele length'] <= df['Pathogenic max'])
-)
+# --- Optional: create an aggregated "All" super-pop row per (Gene,Disease) ---
+if INCLUDE_AGGREGATE_ALL:
+    # Keep columns needed in plots/labels; duplicate rows with SuperPop='All'
+    keep_cols = df.columns.tolist()
+    agg = df.copy()
+    agg['SuperPop'] = 'All'
+    df = pd.concat([df, agg], ignore_index=True)
 
-# --- Map to categorical labels (Benign, Pathogenic, Unknown) ---
-def map_status(val):
-    if pd.isna(val):
-        return "Unknown"
-    return "Pathogenic" if val else "Benign"
+# --- Ensure SuperPop has a stable categorical order ---
+if 'SuperPop' in df.columns:
+    # include only known categories + any unexpected ones appended
+    uniques = df['SuperPop'].astype(str).unique().tolist()
+    cats = [c for c in SUPERPOP_ORDER if c in uniques]
+    extras = [c for c in uniques if c not in cats]
+    df['SuperPop'] = pd.Categorical(df['SuperPop'], categories=cats + extras, ordered=True)
 
-df['Pathogenic status'] = df['Is pathogenic'].apply(map_status)
-df['Pathogenic status'] = pd.Categorical(
-    df['Pathogenic status'],
-    categories=["Benign", "Pathogenic", "Unknown"],
-    ordered=True
-)
-
-# --- Aggregate setup (kept for completeness/compatibility) ---
+# --- Aggregate setup (kept for compatibility) ---
 total_count = (
-    df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'])['Sample ID']
+    df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'], observed=False)['Sample ID']
       .nunique()
       .reset_index(name='total_count')
 )
 
 def count_affected(df_in, inh_mode, min_alleles):
-    df_inh = df_in[df_in['Inheritance'].astype(str) == f"['{inh_mode}']"]
-    df_path = df_inh[df_inh['Is pathogenic'] == True]
+    # Pathogenic bands may be absent for some rows; guard with non-null mask
+    m = (
+        df_in['Inheritance'].astype(str).eq(f"['{inh_mode}']")
+        & df_in['Pathogenic min'].notna()
+        & df_in['Pathogenic max'].notna()
+    )
+    df_inh = df_in[m].copy()
+    if df_inh.empty:
+        return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
+
+    df_path = df_inh[
+        (df_inh['Allele length'] >= df_inh['Pathogenic min'])
+        & (df_inh['Allele length'] <= df_inh['Pathogenic max'])
+    ].copy()
+
+    if df_path.empty:
+        return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
+
     grouped = (
-        df_path.groupby(['Disease', 'Gene', 'SuperPop', 'Sample ID'])
+        df_path.groupby(['Disease', 'Gene', 'SuperPop', 'Sample ID'], observed=False)
                .size()
                .reset_index(name='path_count')
     )
     affected = grouped[grouped['path_count'] >= min_alleles]
     return (
-        affected.groupby(['Disease', 'Gene', 'SuperPop'])['Sample ID']
+        affected.groupby(['Disease', 'Gene', 'SuperPop'], observed=False)['Sample ID']
                 .nunique()
                 .reset_index(name=f'{inh_mode.lower()}_affected_counts')
     )
 
-# Compute affected counts
+# Compute affected counts (safe even if empty)
 ad_affected = count_affected(df, 'AD', 1)
 ar_affected = count_affected(df, 'AR', 2)
 xd_affected = count_affected(df, 'XD', 1)
 xr_affected = count_affected(df, 'XR', 2)
 
-# Merge into summary
+# Merge into summary and compute percentages
 df_agg = total_count.copy()
 for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
-    df_agg = df_agg.merge(
-        affected_df,
-        on=['Disease', 'Gene', 'SuperPop'],
-        how='left'
-    )
+    if not affected_df.empty:
+        df_agg = df_agg.merge(
+            affected_df,
+            on=['Disease', 'Gene', 'SuperPop'],
+            how='left'
+        )
 
 for inh in ['ad', 'ar', 'xd', 'xr']:
+    if f'{inh}_affected_counts' not in df_agg.columns:
+        df_agg[f'{inh}_affected_counts'] = 0
     df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
-    df_agg[f'{inh}_percentage'] = df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100
+    df_agg[f'{inh}_percentage'] = np.where(
+        df_agg['total_count'] > 0,
+        df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100,
+        np.nan
+    )
 
 # --- Plotting helper ---
-def create_violin_beeswarm(original_df, gene, disease, color_by_pathogenic=True):
+def create_violin_beeswarm(original_df, gene, disease):
     subset = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)].copy()
     if subset.empty:
         return None
 
+    # Inheritance parsing (optional; only used in title)
     raw_inh = subset['Inheritance']
     try:
         inh_list = ast.literal_eval(raw_inh.iloc[0]) if not raw_inh.empty else []
@@ -125,20 +145,19 @@ def create_violin_beeswarm(original_df, gene, disease, color_by_pathogenic=True)
     if not inheritance:
         inheritance = "Unknown"
     if inheritance not in ['AD', 'AR', 'XD', 'XR', 'Unknown']:
-        return None
+        inheritance = "Unknown"
 
     # Totals per population (for subtitle)
-    relevant_samples = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)]
+    relevant = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)]
     unique_pops = (
-        relevant_samples
-        .groupby('SuperPop')['Sample ID']
-        .nunique()
-        .reset_index(name='pop_total')
-        .sort_values(by='SuperPop')
+        relevant.groupby('SuperPop', observed=False)['Sample ID']
+                .nunique()
+                .reset_index(name='pop_total')
+                .sort_values(by='SuperPop')
     )
     pop_desc = ', '.join(f"{row['SuperPop']}: {row['pop_total']}" for _, row in unique_pops.iterrows())
 
-    # Wrap long population summary like in the boxplot generator
+    # Wrap subtitle nicely
     max_line_len = 107
     pop_lines, line = [], ""
     for segment in pop_desc.split(", "):
@@ -161,6 +180,7 @@ def create_violin_beeswarm(original_df, gene, disease, color_by_pathogenic=True)
         f"<span style='font-size:12px'>Inheritance: {inheritance}</span>"
     )
 
+    # Violin colored by SuperPop (uses our palette)
     fig = px.violin(
         subset,
         x='Allele length',
@@ -168,23 +188,25 @@ def create_violin_beeswarm(original_df, gene, disease, color_by_pathogenic=True)
         orientation='h',
         box=VIOLIN_SHOW_BOX,
         points=False,
-        color_discrete_sequence=["lightblue"],
+        color='SuperPop',
+        category_orders={'SuperPop': [c for c in SUPERPOP_ORDER if c in subset['SuperPop'].cat.categories]},
+        color_discrete_map=POP_COLOR,
         title=title_html,
     )
 
-    # Use Pathogenic status for coloring
-    color_arg = 'Pathogenic status' if color_by_pathogenic else None
-
+    # Beeswarm points, also colored by SuperPop
     strip_fig = px.strip(
         subset,
         x='Allele length',
         y='SuperPop',
         orientation='h',
-        color=color_arg,
-        category_orders={'Pathogenic status': ["Benign", "Pathogenic", "Unknown"]},
+        color='SuperPop',
+        category_orders={'SuperPop': [c for c in SUPERPOP_ORDER if c in subset['SuperPop'].cat.categories]},
+        color_discrete_map=POP_COLOR,
         hover_data=['Sample ID', 'Allele length', 'SuperPop', 'Gene', 'Disease']
     )
 
+    # Manual jitter to avoid vertical stacking
     for tr in strip_fig.data:
         x_vals = np.array(tr.x, dtype=float)
         if JITTER and JITTER > 0:
@@ -193,22 +215,21 @@ def create_violin_beeswarm(original_df, gene, disease, color_by_pathogenic=True)
         tr.x = x_vals
         tr.update(
             marker=dict(size=POINT_SIZE, opacity=POINT_OPACITY, line=dict(width=0)),
-            showlegend=color_by_pathogenic
+            showlegend=False
         )
         fig.add_trace(tr)
 
     fig.update_layout(
         width=900,
         height=500,
-        margin=dict(t=150, r=20, b=40, l=80),
+        margin=dict(t=150, r=20, b=40, l=100),
         xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black', zeroline=False),
         yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
         plot_bgcolor='white',
         font=dict(color='black'),
-        title=dict(y=0.95)
+        title=dict(y=0.95),
+        showlegend=False
     )
-    if not color_by_pathogenic:
-        fig.update_layout(showlegend=False)
 
     return fig
 
@@ -216,8 +237,8 @@ def create_violin_beeswarm(original_df, gene, disease, color_by_pathogenic=True)
 printed = 0
 pairs = df[['Gene', 'Disease']].drop_duplicates().itertuples(index=False, name=None)
 for gene, disease in pairs:
-    fig = create_violin_beeswarm(df, gene, disease, color_by_pathogenic=COLOR_BY_PATHOGENIC)
-    if not fig:
+    fig = create_violin_beeswarm(df, gene, disease)
+    if fig is None:
         continue
 
     safe_gene = re.sub(r'[\\/]', '_', gene)
@@ -227,7 +248,7 @@ for gene, disease in pairs:
 
     if TEST_MODE:
         print(f"Previewing: {gene} / {disease}")
-        fig.show()
+        fig.show()  # should now open in your default browser
         if SAVE_TEST_OUTPUTS:
             fig.write_html(html_path)
             try:
@@ -244,8 +265,4 @@ for gene, disease in pairs:
         except Exception as e:
             print(f"[PNG export skipped] {e}")
 
-# --- Finished ---
-if TEST_MODE:
-    print("--- Test mode ON: Test completed ---")
-else:
-    print("--- Done ---")
+print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
