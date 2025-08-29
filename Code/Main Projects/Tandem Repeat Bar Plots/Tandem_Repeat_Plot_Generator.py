@@ -218,7 +218,7 @@ for i, record in enumerate(iterator):
             "Allele Size Distribution</span><br>" + subtitle_html
         ),
     )
-    
+    fig.update_traces(marker_color="lightblue")
     fig.update_layout(bargap=0.7)
 
     # --- Axis: keep median/p95 logic for the right edge ---

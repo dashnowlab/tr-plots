@@ -22,7 +22,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- TEST MODE ---
-TEST_MODE = True          # Quick testing: preview, limit work
+TEST_MODE = False          # Quick testing: preview, limit work
 TEST_LIMIT = 3            # Number of VCF records to process in test mode
 SAVE_TEST_OUTPUTS = False  # If True, also save files when TEST_MODE is on
 
@@ -31,7 +31,7 @@ BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
 METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Tandem_Repeats_Swarm_Plots")
+OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Loci_Fix")
 
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
@@ -144,12 +144,35 @@ for i, record in enumerate(iterator):
     pos = record.pos
     chrom = norm_chrom(record.chrom)
 
-    # Find matching locus in metadata (normalize JSON chrom too)
-    matched_locus = next(
-        (entry for entry in loci_data
-         if norm_chrom(entry["chrom"]) == chrom and entry["start_hg38"] <= pos <= entry["stop_hg38"]),
-        None
-    )
+    # --- Find matching locus in metadata ---
+    # Special-case: force-match these two positions to the intended loci
+    FORCED_MATCHES = {
+        ("chr3", 129172696): "CNBP",  # CNBP locus
+        ("chr4",   3074939): "HTT",   # HTT locus
+    }
+
+    matched_locus = None
+    forced_gene = FORCED_MATCHES.get((chrom, pos))
+    if forced_gene:
+        # Prefer entries on the same chrom; if multiple, pick the nearest by midpoint
+        forced_candidates = [e for e in loci_data
+                             if e.get("gene") == forced_gene and norm_chrom(e["chrom"]) == chrom]
+        if not forced_candidates:
+            forced_candidates = [e for e in loci_data if e.get("gene") == forced_gene]
+
+        if forced_candidates:
+            def midpoint(e):
+                return (int(e["start_hg38"]) + int(e["stop_hg38"])) / 2
+            matched_locus = sorted(forced_candidates, key=lambda e: abs(pos - midpoint(e)))[0]
+
+    # Fallback to your original point-in-interval logic for everything else
+    if matched_locus is None:
+        matched_locus = next(
+            (entry for entry in loci_data
+             if norm_chrom(entry["chrom"]) == chrom and entry["start_hg38"] <= pos <= entry["stop_hg38"]),
+            None
+        )
+
     if not matched_locus:
         print(f"{chrom}:{pos} not matched in loci_data")
         continue
@@ -208,27 +231,18 @@ for i, record in enumerate(iterator):
         subtitle_lines.append(line.rstrip())
     subtitle_html = "<br>".join(f"<span style='font-size:12px; color:black'>{l}</span>" for l in subtitle_lines)
 
-    # --- Swarm (strip) plot ---
-    # Put everything in a single category so points can "swarm" vertically
-    df["Alleles"] = "All Samples"
-
-    fig = px.strip(
-        df,
-        x="Repeat Count",
-        y="Alleles",                 # single category on y so we swarm along y
-        orientation="h",             # horizontal: numeric axis is X
+    # --- Histogram ---
+    min_bin, max_bin = int(min(repeat_counts)), int(max(repeat_counts))
+    fig = px.histogram(
+        df, x="Repeat Count",
+        nbins=(max_bin - min_bin + 1),   # 1 bin per integer (Plotly sizes bars)
         title=(
             "<span style='font-size:18px; font-weight:bold; color:black'>"
             "Allele Size Distribution</span><br>" + subtitle_html
         ),
     )
-
-    # Make it look like a beeswarm
-    fig.update_traces(
-        jitter=0.5,                  # spread points along the categorical axis
-        marker=dict(size=7, opacity=0.85, line=dict(width=0)),
-        hovertemplate="Repeat Count=%{x}<extra></extra>",
-    )
+    
+    fig.update_layout(bargap=0.7)
 
     # --- Axis: keep median/p95 logic for the right edge ---
     arr = np.asarray(repeat_counts, dtype=float)
@@ -239,19 +253,13 @@ for i, record in enumerate(iterator):
 
     # Styling
     fig.update_layout(
-        width=900,
-        height=500,
-        margin=dict(t=125),
-        title_font_size=18,
-        xaxis_title="Repeat Count",
-        yaxis_title=None,
-        plot_bgcolor="white",
-        title=dict(y=0.95, font=dict(color="black")),
+        width=900, height=500, margin=dict(t=125), title_font_size=18,
+        xaxis_title="Repeat Count", yaxis_title="Allele Count",
+        plot_bgcolor='white', title=dict(y=0.95, font=dict(color='black'))
     )
-
-    # Clean axes: show a baseline on x, hide y clutter (single category only)
-    fig.update_xaxes(showline=True, linecolor="black", zeroline=False, showgrid=False, ticks="outside")
-    fig.update_yaxes(showline=False, showgrid=False, ticks="", showticklabels=False)
+    fig.update_xaxes(showline=True, linecolor='black', zeroline=False, showgrid=False, ticks="outside")
+    fig.update_yaxes(showline=True, linecolor='black', zeroline=False, showgrid=True, gridcolor='rgba(0,0,0,0.08)', ticks="outside")
+    fig.update_traces(hovertemplate="Repeat Count=%{x}<br>Allele Count=%{y}<extra></extra>")
 
     # Reference ranges
     x_range = fig.layout.xaxis.range
