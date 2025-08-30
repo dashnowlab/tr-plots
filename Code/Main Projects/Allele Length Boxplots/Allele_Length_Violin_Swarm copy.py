@@ -1,13 +1,13 @@
 """
 ---------------------------------------------
- Script: Allele Length Boxplot Generator
+ Script: Allele Length Violin+Swarm Generator
  Purpose:
    - Reads a CSV of allele lengths with ancestry and metadata
    - Flags pathogenic individuals using per-locus thresholds
-   - Aggregates counts and computes % pathogenic by population
-   - Builds horizontal boxplots of allele length by population
-   - Saves plots as PNG and HTML 
-   - In test mode, previews a single plot for quick checks
+   - Aggregates counts (same as boxplot script for consistency)
+   - Builds horizontal violin plots with overlaid points ("swarm")
+   - Saves plots as PNG and HTML
+   - In test mode, previews a subset for quick checks
 ---------------------------------------------
 """
 
@@ -18,15 +18,21 @@ import os
 import ast
 
 # --- TEST MODE ---
-TEST_MODE = True              # Toggle this flag for quick testing (preview only)
-TEST_LIMIT = 3                # How many (gene, disease) plots to generate in test mode
+TEST_MODE = True               # Toggle this flag for quick testing (preview only)
+TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
 SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode
+
+# --- Figure sizing (standardized) ---
+FIG_WIDTH = 900
+FIG_HEIGHT = 500
+TOP_MARGIN = 130               # fixed header space (annotations), keeps plot area aligned
+PNG_SCALE = 2
 
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/"
 
 DATA_PATH = f"{BASE_DIR}Data/Other Data/83_loci_503_samples_withancestrycolumns.csv"
-OUTPUT_DIR = f"{BASE_DIR}Results/Plots/Allele_Length_Boxplots"
+OUTPUT_DIR = f"{BASE_DIR}Results/Plots/Allele_Length_Violin_Swarm"
 
 # Normal mode: save into PNG and HTML subfolders
 OUTPUT_DIR_PNG = os.path.join(OUTPUT_DIR, "PNG")
@@ -38,16 +44,8 @@ os.makedirs(OUTPUT_DIR_HTML, exist_ok=True)
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-    # Save both PNG + HTML into this one folder
     OUTPUT_DIR_PNG = OUTPUT_DIR
     OUTPUT_DIR_HTML = OUTPUT_DIR
-
-# --- Figure sizing (standardized) ---
-FIG_WIDTH = 900
-FIG_HEIGHT = 500
-TOP_MARGIN = 125
-PNG_SCALE = 2
 
 # --- POPULATION PALETTE (1kG-style) ---
 POP_COLOR = {
@@ -57,8 +55,8 @@ POP_COLOR = {
     'AMR': '#d62728',  # red
     'AFR': '#ff7f0e',  # orange/yellow
     'All': '#7f7f7f',  # gray for aggregates
+    'Unknown': '#ff99cc',  # fallback for unknowns (optional)
 }
-# Put "All" at the top, then a readable order
 SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
 
 # --- Load data ---
@@ -70,29 +68,19 @@ df_all["SuperPop"] = "All"
 df = pd.concat([df, df_all], ignore_index=True)
 
 # --- Flag pathogenic individuals using thresholds ---
-# True if allele length is within [Pathogenic min, Pathogenic max]
 df['Is pathogenic'] = (
     (df['Allele length'] >= df['Pathogenic min']) &
     (df['Allele length'] <= df['Pathogenic max'])
 )
 
-# --- Aggregate setup ---
-# Count unique samples per (Disease, Gene, SuperPop, Allele length)
+# --- Aggregate setup (to match boxplot script; not strictly required for violin) ---
 total_count = (
     df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'])['Sample ID']
       .nunique()
       .reset_index(name='total_count')
 )
 
-# Helper: count affected individuals per inheritance model
 def count_affected(df_in, inh_mode, min_alleles):
-    """
-    For a given inheritance model (e.g., 'AD'), count individuals
-    who meet the 'Is pathogenic' criteria.
-    - AD/XD: need >=1 pathogenic allele (min_alleles=1)
-    - AR/XR: need >=2 pathogenic alleles (min_alleles=2)
-    NOTE: This function matches stringified lists like "['AD']" as in source data.
-    """
     df_inh = df_in[df_in['Inheritance'].astype(str) == f"['{inh_mode}']"]
     df_path = df_inh[df_inh['Is pathogenic'] == True]
     grouped = (
@@ -107,13 +95,11 @@ def count_affected(df_in, inh_mode, min_alleles):
                 .reset_index(name=f'{inh_mode.lower()}_affected_counts')
     )
 
-# --- Compute affected counts for each model ---
 ad_affected = count_affected(df, 'AD', 1)
 ar_affected = count_affected(df, 'AR', 2)
 xd_affected = count_affected(df, 'XD', 1)
 xr_affected = count_affected(df, 'XR', 2)
 
-# --- Merge affected counts into main summary ---
 df_agg = total_count.copy()
 for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
     df_agg = df_agg.merge(
@@ -122,134 +108,123 @@ for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
         how='left'
     )
 
-# Fill missing counts with 0 and compute percentages
 for inh in ['ad', 'ar', 'xd', 'xr']:
     df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
     df_agg[f'{inh}_percentage'] = df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100
 
-def create_boxplot(filtered_df, gene, disease, original_df):
+def _wrap_to_lines(s: str, max_len: int = 110):
+    parts = [p.strip() for p in s.split(",")]
+    lines, line = [], ""
+    for seg in parts:
+        seg = seg.strip()
+        if not seg:
+            continue
+        add = (", " if line else "") + seg
+        if len(line) + len(seg) + (2 if line else 0) > max_len:
+            if line:
+                lines.append(line)
+            line = seg
+        else:
+            line += add if line else seg
+    if line:
+        lines.append(line)
+    return lines
+
+def create_violin_swarm(filtered_df, gene, disease, original_df):
     """
-    Build a horizontal boxplot:
+    Build a horizontal violin plot with overlaid points ("swarm"):
       - X: Allele length
       - Y: SuperPop
-    Title includes gene/disease, total counts per population, and inheritance mode.
-    Uses 1kG-style colors and a readable SuperPop order with 'All' first.
+    Fixed-size header via annotations to keep plot area aligned across figures.
     """
     if filtered_df.empty:
         return None
 
-    # Get inheritance mode for title; data sometimes stores as stringified list
     raw_inh = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)]['Inheritance']
     try:
         inh_list = ast.literal_eval(raw_inh.iloc[0]) if not raw_inh.empty else []
         inheritance = inh_list[0] if inh_list else ''
     except Exception:
         inheritance = str(raw_inh.iloc[0]) if not raw_inh.empty else ''
-    if not inheritance:
-        inheritance = "Unknown"
-    if inheritance not in ['AD', 'AR', 'XD', 'XR', 'Unknown']:
-        print(f"Skipping unknown inheritance: {gene}")
-        return None
+    inheritance = inheritance if inheritance in ['AD', 'AR', 'XD', 'XR'] else 'Unknown'
 
-    # Enforce SuperPop ordering for BOTH the plot data and the totals subtitle
-    # Keep only categories that actually appear to avoid empty ticks
     present = filtered_df['SuperPop'].dropna().unique().tolist()
     ordered_categories = [c for c in SUPERPOP_ORDER if c in present]
 
-    # Make ordered categoricals
     fdf = filtered_df.copy()
     fdf['SuperPop'] = pd.Categorical(fdf['SuperPop'], categories=ordered_categories, ordered=True)
 
     relevant_samples = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)].copy()
     relevant_samples['SuperPop'] = pd.Categorical(relevant_samples['SuperPop'], categories=ordered_categories, ordered=True)
 
-    # Totals per population (for subtitle), shown in the same order as the plot
-    # Use unique Sample IDs per population; "All" will naturally equal the total unique samples.
     counts = (
         relevant_samples
         .groupby('SuperPop', observed=True)['Sample ID']
         .nunique()
-        .reindex(ordered_categories)  # ensures "All" appears first if present
+        .reindex(ordered_categories)
     ).dropna().astype(int)
-
     pop_desc = ', '.join(f"{pop}: {counts.loc[pop]}" for pop in counts.index)
+    pop_lines = _wrap_to_lines(pop_desc, max_len=110)
 
-    # Wrap long population summary
-    max_line_len = 107
-    pop_lines, line = [], ""
-    for segment in pop_desc.split(", "):
-        if len(line) + len(segment) > max_line_len:
-            pop_lines.append(line.strip(", "))
-            line = ""
-        line += segment + ", "
-    if line:
-        pop_lines.append(line.strip(", "))
-
-    pop_size_html = "<br>".join([
-        f"<span style='font-size:12px'>Total Individuals per Population: {ln}</span>" if i == 0
-        else f"<span style='font-size:12px'>{ln}</span>"
-        for i, ln in enumerate(pop_lines)
-    ])
-
-    # Wrap long population summary
-    max_line_len = 107
-    pop_lines, line = [], ""
-    for segment in pop_desc.split(", "):
-        if len(line) + len(segment) > max_line_len:
-            pop_lines.append(line.strip(", "))
-            line = ""
-        line += segment + ", "
-    if line:
-        pop_lines.append(line.strip(", "))
-    pop_size_html = "<br>".join([
-        f"<span style='font-size:12px'>Total Individuals per Population: {ln}</span>" if i == 0
-        else f"<span style='font-size:12px'>{ln}</span>"
-        for i, ln in enumerate(pop_lines)
-    ])
-
-    # Wrap "GENE - DISEASE" if long
-    max_line_len_disease = 80
-    disease_line, disease_lines = "", []
-    for word in f"{gene} - {disease}".split(" "):
-        if len(disease_line) + len(word) + 1 > max_line_len_disease:
-            disease_lines.append(disease_line.strip())
-            disease_line = ""
-        disease_line += word + " "
-    if disease_line:
-        disease_lines.append(disease_line.strip())
-    disease_html = "<br>".join(f"<span style='font-size:12px'>{ln}</span>" for ln in disease_lines)
-
-    # Compose title
-    title_html = (
-        f"<span style='font-size:18px; font-weight:bold'>Allele Lengths per Population</span><br>"
-        f"{disease_html}<br>{pop_size_html}<br>"
-        f"<span style='font-size:12px'>Inheritance: {inheritance}</span>"
-    )
-
-    # Build the boxplot with palette + order
-    fig = px.box(
+    # ---- Build the violin + swarm (no built-in title) ----
+    fig = px.violin(
         fdf,
         x='Allele length',
         y='SuperPop',
         color='SuperPop',
         category_orders={"SuperPop": ordered_categories},
         color_discrete_map=POP_COLOR,
-        title=title_html,
+        box=False,                 # violin only; box off (can set True if desired)
+        points='all',              # show points (swarm-like)
+        title=None,
     )
 
-    # Style
+    # Make the point cloud look denser (swarm-ish)
+    fig.update_traces(
+        jitter=0.35,                # horizontal jitter of points
+        marker=dict(size=4, line=dict(width=0)),
+        meanline_visible=True
+    )
+
+    # Consistent sizing & style
     fig.update_layout(
-        width=900,
-        height=500,
-        margin=dict(t=150),
-        bargap=0.5,
+        width=FIG_WIDTH,
+        height=FIG_HEIGHT,
+        margin=dict(t=TOP_MARGIN, r=40, b=60, l=80),
+        autosize=False,
+        plot_bgcolor='white',
+        showlegend=False,  # keep consistent
+        font=dict(color='black'),
         xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black'),
         yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
-        plot_bgcolor='white',
-        showlegend=False,
-        font=dict(color='black'),
-        title=dict(y=0.95)
     )
+
+    # ---- Fixed-position header via annotations ----
+    main_title = "<b>Allele Lengths per Population</b>"
+    subtitle_lines = [f"{gene} - {disease}"] + \
+                     [f"Total Individuals per Population: {pop_lines[0]}"] + \
+                     pop_lines[1:] + \
+                     [f"Inheritance: {inheritance}"]
+
+    annos = [
+        dict(
+            text=main_title, x=0, xref="paper", xanchor="left",
+            y=1.4, yref="paper", yanchor="top",
+            showarrow=False, align="left", font=dict(size=18)
+        )
+    ]
+    y0 = 1.32
+    for i, line in enumerate(subtitle_lines):
+        annos.append(
+            dict(
+                text=f"<span style='font-size:12px'>{line}</span>",
+                x=0, xref="paper", xanchor="left",
+                y=y0 - 0.04*i, yref="paper", yanchor="top",
+                showarrow=False, align="left"
+            )
+        )
+    fig.update_layout(annotations=annos)
+
     return fig
 
 # --- Generate plots ---
@@ -258,39 +233,29 @@ for gene in df_agg['Gene'].unique():
     diseases = df_agg[df_agg['Gene'] == gene]['Disease'].unique()
     for disease in diseases:
         sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
-
-        fig = create_boxplot(sub_df.copy(), gene, disease, df)
+        fig = create_violin_swarm(sub_df.copy(), gene, disease, df)
         if not fig:
             continue
 
         safe_gene = re.sub(r'[\\/]', '_', gene)
         safe_disease = re.sub(r'[\\/]', '_', disease)
-        png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_allele_length_boxplot.png")
-        html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_allele_length_boxplot.html")
+        png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.png")
+        html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.html")
 
         if TEST_MODE:
-            # Preview in test mode
             print(f"Previewing: {gene} / {disease}")
             fig.show()
-
-            # Save test outputs (controlled by SAVE_TEST_OUTPUTS at top of script)
             if SAVE_TEST_OUTPUTS:
-                print(f"Saving: {gene} / {disease}")
                 fig.write_html(html_path)
                 fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-
             printed += 1
             if printed >= TEST_LIMIT:
                 break
         else:
-            # Non-test mode: save quietly (no printing/showing)
             fig.write_html(html_path)
             fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
     if TEST_MODE and printed >= TEST_LIMIT:
         break
 
 # --- Finished ---
-if TEST_MODE:
-    print("--- Test mode ON: Test completed ---")
-else:
-    print("--- Done ---")
+print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")

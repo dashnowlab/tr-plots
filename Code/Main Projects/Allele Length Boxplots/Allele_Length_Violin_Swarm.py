@@ -9,7 +9,7 @@ import plotly.io as pio
 # --- TEST MODE / RENDERER ---
 TEST_MODE = True               # set True if you want a quick on-screen preview
 TEST_LIMIT = 3
-SAVE_TEST_OUTPUTS = True
+SAVE_TEST_OUTPUTS = False
 pio.renderers.default = "browser"  # ensures fig.show() opens from terminal
 
 # --- VISUAL OPTIONS ---
@@ -29,7 +29,7 @@ POP_COLOR = {
     'All': '#7f7f7f',  # gray for aggregates
 }
 # Put "All" at the top, then a readable order
-SUPERPOP_ORDER = ['AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'All', 'Unknown']
+SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
 
 # --- File locations ---
 BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/"
@@ -45,6 +45,12 @@ if TEST_MODE:
     os.makedirs(OUTPUT_DIR, exist_ok=True)
     OUTPUT_DIR_PNG = OUTPUT_DIR
     OUTPUT_DIR_HTML = OUTPUT_DIR
+
+# --- Figure sizing (standardized) ---
+FIG_WIDTH = 900
+FIG_HEIGHT = 500
+TOP_MARGIN = 125
+PNG_SCALE = 2
 
 # --- Load data ---
 df = pd.read_csv(DATA_PATH)
@@ -220,9 +226,10 @@ def create_violin_beeswarm(original_df, gene, disease):
         fig.add_trace(tr)
 
     fig.update_layout(
-        width=900,
-        height=500,
-        margin=dict(t=150, r=20, b=40, l=100),
+        width=FIG_WIDTH,
+        height=FIG_HEIGHT,
+        margin=dict(t=TOP_MARGIN),
+        autosize=False,
         xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black', zeroline=False),
         yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
         plot_bgcolor='white',
@@ -248,11 +255,11 @@ for gene, disease in pairs:
 
     if TEST_MODE:
         print(f"Previewing: {gene} / {disease}")
-        fig.show()  # should now open in your default browser
+        fig.show()  # should open in your default browser
         if SAVE_TEST_OUTPUTS:
             fig.write_html(html_path)
             try:
-                fig.write_image(png_path, format="png", scale=2)
+                fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
             except Exception as e:
                 print(f"[PNG export skipped] {e}")
         printed += 1
@@ -261,7 +268,7 @@ for gene, disease in pairs:
     else:
         fig.write_html(html_path)
         try:
-            fig.write_image(png_path, format="png", scale=2)
+            fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
         except Exception as e:
             print(f"[PNG export skipped] {e}")
 
