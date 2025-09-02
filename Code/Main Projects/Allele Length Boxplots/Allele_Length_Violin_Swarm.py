@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.io as pio
 
 # --- TEST MODE / RENDERER ---
-TEST_MODE = True               # set True if you want a quick on-screen preview
+TEST_MODE = False               # set True if you want a quick on-screen preview
 TEST_LIMIT = 3
 SAVE_TEST_OUTPUTS = False
 pio.renderers.default = "browser"  # ensures fig.show() opens from terminal
