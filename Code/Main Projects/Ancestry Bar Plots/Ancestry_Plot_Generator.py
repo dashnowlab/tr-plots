@@ -21,7 +21,7 @@ import numpy as np
 from statsmodels.stats import proportion
 
 # --- TEST MODE ---
-TEST_MODE = True                # Toggle this flag for quick testing (only one plot generated)
+TEST_MODE = False                # Toggle this flag for quick testing (only one plot generated)
 TEST_LIMIT = 3                   # How many (gene,disease) plots in test mode
 SAVE_TEST_OUTPUTS = True         # Toggle saving plots when in test mode
 
@@ -30,7 +30,7 @@ BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
 
 SEQ_DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex.xlsx"
 PORE_PATH = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary_Sample_ID_Pore.csv"
-OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Ancestry_Bar_Plots")
+OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Ancestry_Plot_Generator")
 
 if TEST_MODE:
     # In test mode: just one folder, no subfolders
