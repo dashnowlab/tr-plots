@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trplots"
+version = "0.1.0"
+description = "Tandem repeat plotting and data utilities"
+requires-python = ">=3.9"
+dependencies = ["numpy","pandas","pysam","plotly"]
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
