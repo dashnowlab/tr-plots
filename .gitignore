@@ -12,12 +12,11 @@
 *.png
 *.html
 
-# Ignore contents of Data and Results by default
+# Ignore contents of Data, Results, and the config.py by default
 Data/**
 Results/**
 config.py
 
-# BUT keep placeholders so structure shows on GitHub
+# Keep placeholders so structure shows on GitHub
 !Data/README.md
 !Results/README.md
-!Code/**
