@@ -1,9 +1,10 @@
-Metadata-Version: 2.4
-Name: trplots
-Version: 0.1.0
-Summary: Tandem repeat plotting and data utilities
-Requires-Python: >=3.9
-Requires-Dist: numpy
-Requires-Dist: pandas
-Requires-Dist: pysam
-Requires-Dist: plotly
+metadata_version: "2.4"
+name: "trplots"
+version: "0.1.0"
+summary: "Tandem repeat plotting and data utilities"
+requires_python: ">=3.9"
+requires_dist:
+  - numpy
+  - pandas
+  - pysam
+  - plotly
