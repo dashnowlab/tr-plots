@@ -18,7 +18,7 @@ import pysam
 import pandas as pd
 
 # --- TEST MODE ---
-TEST_MODE = False                 # Quick testing: process only some VCF records
+TEST_MODE = True                 # Quick testing: process only some VCF records
 TEST_LIMIT = 100                 # Max VCF variants to process in test mode
 SAVE_TEST_OUTPUTS = True         # Save files in test mode if True
 

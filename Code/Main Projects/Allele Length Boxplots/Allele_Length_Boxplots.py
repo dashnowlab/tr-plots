@@ -18,7 +18,7 @@ import os
 import ast
 
 # --- TEST MODE ---
-TEST_MODE = False               # Toggle this flag for quick testing (preview only)
+TEST_MODE = True               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
 SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode
 
@@ -54,11 +54,11 @@ POP_COLOR = {
     'SAS': '#9467bd',  # purple
     'AMR': '#d62728',  # red
     'AFR': '#ff7f0e',  # orange/yellow
-    'All': '#7f7f7f',  # gray for aggregates
-    'Unknown': '#ff99cc',  # fallback for unknowns (optional)
+    'Unknown': '#7f7f7f',  # gray for unknowns
+    'All': '#ff99cc',  # fallback for all
 }
 # Put "All" at the top, then a readable order
-SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
+SUPERPOP_ORDER = ['AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown', 'All']
 
 # --- Load data ---
 df = pd.read_csv(DATA_PATH)

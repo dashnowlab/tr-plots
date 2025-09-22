@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 
 # --- TEST MODE ---
-TEST_MODE = False          # Toggle for quick checks
+TEST_MODE = True          # Toggle for quick checks
 TEST_LIMIT = 100        # Number of rows to process in test mode
 SAVE_TEST_OUTPUTS = True  # If True, write files in test mode; otherwise just preview
 
