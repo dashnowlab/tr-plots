@@ -15,6 +15,7 @@
 import json
 import os
 import re
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import pysam
@@ -22,16 +23,14 @@ import plotly.express as px
 import plotly.graph_objects as go
 
 # --- TEST MODE ---
-TEST_MODE = False          # Quick testing: preview, limit work
+TEST_MODE = True          # Quick testing: preview, limit work
 TEST_LIMIT = 3            # Number of VCF records to process in test mode
-SAVE_TEST_OUTPUTS = False  # If True, also save files when TEST_MODE is on
+SAVE_TEST_OUTPUTS = True  # If True, also save files when TEST_MODE is on
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
+from trplots.config import VCF_PATH, JSON_PATH, OUTPUT_BASE  
 
-VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
-METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Tandem_Repeats_Plot_Generator")
+OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/Tandem_Repeats_Plots")
 
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
@@ -46,7 +45,7 @@ else:
     os.makedirs(OUTPUT_PNG_DIR,  exist_ok=True)
 
 # --- Load the metadata file ---
-with open(METADATA_PATH, "r") as file:
+with open(JSON_PATH, "r") as file:
     loci_data = json.load(file)  # list of loci with info like gene name, disease, thresholds
 
 # --- Helpers ---
