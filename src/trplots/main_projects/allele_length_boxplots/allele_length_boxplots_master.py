@@ -18,11 +18,13 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from pathlib import Path
+from trplots.config import BASE_DIR, ENSURE_DIR, ALLELE_LENGTH_PLOTS_OUTPUT
 
 # --- TEST MODE ---
-TEST_MODE = False               # Toggle this flag for quick testing (preview only)
+TEST_MODE = True               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many locus plots to generate in test mode
-SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode (PNG/HTML)
+SAVE_TEST_OUTPUTS = True      # Toggle saving plots when in test mode (PNG/HTML)
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
@@ -30,23 +32,20 @@ FIG_HEIGHT = 500
 TOP_MARGIN = 130               # space for the header lines
 PNG_SCALE = 2
 
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/"
-DATA_PATH = f"{BASE_DIR}Data/Other Data/Allele_Master_Spreadsheet2.xlsx"  # Excel master
+# --- File locations (via config) ---
+DATA_PATH = BASE_DIR / "data" / "other_data" / "allele_master_spreadsheet2.xlsx"  # Excel master
 SHEET_NAME = "Sheet1"
 
-OUTPUT_DIR = f"{BASE_DIR}Results/Plots/Allele_Length_Boxplots_Master"
-OUTPUT_DIR_PNG = os.path.join(OUTPUT_DIR, "PNG")
-OUTPUT_DIR_HTML = os.path.join(OUTPUT_DIR, "HTML")
-os.makedirs(OUTPUT_DIR_PNG, exist_ok=True)
-os.makedirs(OUTPUT_DIR_HTML, exist_ok=True)
+# Default output roots (results/plots/allele_length_boxplots/...)
+OUTPUT_ROOT = ALLELE_LENGTH_PLOTS_OUTPUT / "allele_length_boxplots_master"
+OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "png")
+OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "html")
 
 # If test mode: override to a single test_outputs folder
 if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    OUTPUT_DIR_PNG = OUTPUT_DIR
-    OUTPUT_DIR_HTML = OUTPUT_DIR
+    OUTPUT_ROOT = ENSURE_DIR("plots", "allele_length_boxplots", "test_outputs")
+    OUTPUT_DIR_PNG = OUTPUT_ROOT
+    OUTPUT_DIR_HTML = OUTPUT_ROOT
 
 # --- POPULATION PALETTE (1kG-style) ---
 POP_COLOR = {

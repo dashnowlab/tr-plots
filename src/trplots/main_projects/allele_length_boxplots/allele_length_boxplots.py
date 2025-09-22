@@ -16,11 +16,13 @@ import re
 import plotly.express as px
 import os
 import ast
+from pathlib import Path
+from trplots.config import BASE_DIR, ENSURE_DIR, ALLELE_LENGTH_PLOTS_OUTPUT
 
 # --- TEST MODE ---
 TEST_MODE = True               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
-SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode
+SAVE_TEST_OUTPUTS = True      # Toggle saving plots when in test mode
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
@@ -28,24 +30,20 @@ FIG_HEIGHT = 500
 TOP_MARGIN = 130               # fixed header space (annotations), keeps plot area aligned
 PNG_SCALE = 2
 
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/"
+# --- File locations (via config) ---
+DATA_PATH = BASE_DIR / "data" / "other_data" / "83_loci_503_samples_withancestrycolumns.csv"
+SHEET_NAME = "Sheet1"  # keep if you still need it elsewhere
 
-DATA_PATH = f"{BASE_DIR}Data/Other Data/83_loci_503_samples_withancestrycolumns.csv"
-OUTPUT_DIR = f"{BASE_DIR}Results/Plots/Allele_Length_Boxplots"
-
-# Normal mode: save into PNG and HTML subfolders
-OUTPUT_DIR_PNG = os.path.join(OUTPUT_DIR, "PNG")
-OUTPUT_DIR_HTML = os.path.join(OUTPUT_DIR, "HTML")
-os.makedirs(OUTPUT_DIR_PNG, exist_ok=True)
-os.makedirs(OUTPUT_DIR_HTML, exist_ok=True)
+# Default output roots: results/plots/allele_length_boxplots/...
+OUTPUT_ROOT     = ALLELE_LENGTH_PLOTS_OUTPUT / "allele_length_boxplots"
+OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "png")
+OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "html")
 
 # If test mode: override to a single test_outputs folder
 if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    OUTPUT_DIR_PNG = OUTPUT_DIR
-    OUTPUT_DIR_HTML = OUTPUT_DIR
+    OUTPUT_ROOT     = ENSURE_DIR("plots", "allele_length_boxplots", "test_outputs")
+    OUTPUT_DIR_PNG  = OUTPUT_ROOT
+    OUTPUT_DIR_HTML = OUTPUT_ROOT
 
 # --- POPULATION PALETTE (1kG-style) ---
 POP_COLOR = {
