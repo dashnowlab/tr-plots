@@ -11,14 +11,21 @@
 ---------------------------------------------
 """
 
-import pandas as pd
 import re
-import plotly.express as px
-import os
 import ast
+import pandas as pd
+import plotly.express as px
+from pathlib import Path
+
+# Pull paths from the shared config
+from trplots.config import (
+    OTHER_DATA,
+    ENSURE_DIR,
+    ALLELE_LENGTH_PLOTS_OUTPUT,
+)
 
 # --- TEST MODE ---
-TEST_MODE = False               # Toggle this flag for quick testing (preview only)
+TEST_MODE = False              # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
 SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode
 
@@ -28,39 +35,34 @@ FIG_HEIGHT = 500
 TOP_MARGIN = 130               # fixed header space (annotations), keeps plot area aligned
 PNG_SCALE = 2
 
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/"
+# --- File locations (via config) ---
+DATA_CSV = OTHER_DATA / "83_loci_503_samples_withancestrycolumns.csv"
 
-DATA_PATH = f"{BASE_DIR}Data/Other Data/83_loci_503_samples_withancestrycolumns.csv"
-OUTPUT_DIR = f"{BASE_DIR}Results/Plots/Allele_Length_Violin_Swarm_Copy"
-
-# Normal mode: save into PNG and HTML subfolders
-OUTPUT_DIR_PNG = os.path.join(OUTPUT_DIR, "PNG")
-OUTPUT_DIR_HTML = os.path.join(OUTPUT_DIR, "HTML")
-os.makedirs(OUTPUT_DIR_PNG, exist_ok=True)
-os.makedirs(OUTPUT_DIR_HTML, exist_ok=True)
+# Default output roots under results/plots/allele_length_boxplots/violin_swarm/...
+OUTPUT_ROOT = ALLELE_LENGTH_PLOTS_OUTPUT / "violin_swarm"
+OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "violin_swarm", "png")
+OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "violin_swarm", "html")
 
 # If test mode: override to a single test_outputs folder
 if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    OUTPUT_DIR_PNG = OUTPUT_DIR
-    OUTPUT_DIR_HTML = OUTPUT_DIR
+    OUTPUT_ROOT = ENSURE_DIR("plots", "allele_length_boxplots", "violin_swarm", "test_outputs")
+    OUTPUT_DIR_PNG = OUTPUT_ROOT
+    OUTPUT_DIR_HTML = OUTPUT_ROOT
 
 # --- POPULATION PALETTE (1kG-style) ---
 POP_COLOR = {
-    'EUR': '#1f77b4',  # blue
-    'EAS': '#2ca02c',  # green
-    'SAS': '#9467bd',  # purple
-    'AMR': '#d62728',  # red
-    'AFR': '#ff7f0e',  # orange/yellow
-    'All': '#7f7f7f',  # gray for aggregates
+    'EUR': '#1f77b4',   # blue
+    'EAS': '#2ca02c',   # green
+    'SAS': '#9467bd',   # purple
+    'AMR': '#d62728',   # red
+    'AFR': '#ff7f0e',   # orange/yellow
+    'All': '#7f7f7f',   # gray for aggregates
     'Unknown': '#ff99cc',  # fallback for unknowns (optional)
 }
 SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
 
 # --- Load data ---
-df = pd.read_csv(DATA_PATH)
+df = pd.read_csv(DATA_CSV)
 
 # --- Add 'All' population ---
 df_all = df.copy()
@@ -174,14 +176,15 @@ def create_violin_swarm(filtered_df, gene, disease, original_df):
         color='SuperPop',
         category_orders={"SuperPop": ordered_categories},
         color_discrete_map=POP_COLOR,
-        box=False,                 # violin only; box off (can set True if desired)
-        points='all',              # show points (swarm-like)
+        box=False,
+        points='all',
         title=None,
+        orientation='h',
     )
 
     # Make the point cloud look denser (swarm-ish)
     fig.update_traces(
-        jitter=0.35,                # horizontal jitter of points
+        jitter=0.35,
         marker=dict(size=4, line=dict(width=0)),
         meanline_visible=True
     )
@@ -193,7 +196,7 @@ def create_violin_swarm(filtered_df, gene, disease, original_df):
         margin=dict(t=TOP_MARGIN, r=40, b=60, l=80),
         autosize=False,
         plot_bgcolor='white',
-        showlegend=False,  # keep consistent
+        showlegend=False,
         font=dict(color='black'),
         xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black'),
         yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
@@ -202,8 +205,8 @@ def create_violin_swarm(filtered_df, gene, disease, original_df):
     # ---- Fixed-position header via annotations ----
     main_title = "<b>Allele Lengths per Population</b>"
     subtitle_lines = [f"{gene} - {disease}"] + \
-                     [f"Total Individuals per Population: {pop_lines[0]}"] + \
-                     pop_lines[1:] + \
+                     ([f"Total Individuals per Population: {pop_lines[0]}"] if pop_lines else []) + \
+                     (pop_lines[1:] if len(pop_lines) > 1 else []) + \
                      [f"Inheritance: {inheritance}"]
 
     annos = [
@@ -239,21 +242,22 @@ for gene in df_agg['Gene'].unique():
 
         safe_gene = re.sub(r'[\\/]', '_', gene)
         safe_disease = re.sub(r'[\\/]', '_', disease)
-        png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.png")
-        html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.html")
+
+        png_path = (OUTPUT_DIR_PNG / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.png")
+        html_path = (OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.html")
 
         if TEST_MODE:
             print(f"Previewing: {gene} / {disease}")
             fig.show()
             if SAVE_TEST_OUTPUTS:
-                fig.write_html(html_path)
-                fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                fig.write_html(str(html_path))
+                fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
             printed += 1
             if printed >= TEST_LIMIT:
                 break
         else:
-            fig.write_html(html_path)
-            fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+            fig.write_html(str(html_path))
+            fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
     if TEST_MODE and printed >= TEST_LIMIT:
         break
 
