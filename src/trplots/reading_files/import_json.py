@@ -10,10 +10,10 @@
 """
 
 import json
-import os
+from trplots.config import OTHER_DATA
 
 # --- File location ---
-JSON_PATH = "/Users/annelisethorn/Documents/GitHub/tr-plots/Data/Other Data/STRchive-loci.json"
+JSON_PATH = OTHER_DATA / "strchive-loci.json"
 
 # --- Load JSON metadata ---
 with open(JSON_PATH, "r") as file:

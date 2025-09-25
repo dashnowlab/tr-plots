@@ -31,12 +31,14 @@ POP_COLOR = {
 # Put "All" at the top, then a readable order
 SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
 
+from trplots.config import OTHER_DATA, OUTPUT_BASE
+from pathlib import Path
+
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/"
-DATA_PATH = f"{BASE_DIR}Data/Other Data/83_loci_503_samples_withancestrycolumns.csv"
-OUTPUT_DIR = f"{BASE_DIR}Results/Plots/Allele_Length_Violin_Swarm"
-OUTPUT_DIR_PNG = os.path.join(OUTPUT_DIR, "PNG")
-OUTPUT_DIR_HTML = os.path.join(OUTPUT_DIR, "HTML")
+DATA_PATH = OTHER_DATA / "83_loci_503_samples_withancestrycolumns.csv"
+OUTPUT_DIR = Path(OUTPUT_BASE) / "plots" / "allele_length_violin_swarm"
+OUTPUT_DIR_PNG = OUTPUT_DIR / "PNG"
+OUTPUT_DIR_HTML = OUTPUT_DIR / "HTML"
 os.makedirs(OUTPUT_DIR_PNG, exist_ok=True)
 os.makedirs(OUTPUT_DIR_HTML, exist_ok=True)
 

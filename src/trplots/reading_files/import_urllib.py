@@ -9,15 +9,16 @@
 """
 
 import urllib.request
-import os
+from pathlib import Path
+from trplots.config import OTHER_DATA
 
 # --- File locations ---
 URL = "ftp://ftp.1000genomes.ebi.ac.uk/vol1/ftp/technical/working/20130606_sample_info/20130606_sample_info.txt"
-OUTPUT_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Data/Other Data"
-OUTPUT_FILE = os.path.join(OUTPUT_DIR, "1000_Genomes_20130606_sample_info.txt")
+OUTPUT_DIR = OTHER_DATA
+OUTPUT_FILE = OUTPUT_DIR / "1000_genomes_20130606_sample_info.txt"
 
 # --- Prepare output directory ---
-os.makedirs(OUTPUT_DIR, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # --- Download file ---
 urllib.request.urlretrieve(URL, OUTPUT_FILE)

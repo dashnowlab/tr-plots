@@ -18,33 +18,34 @@ import os
 import json
 import numpy as np
 import pandas as pd
+from pathlib import Path
 
 # --- TEST MODE ---
 TEST_MODE = False
 TEST_LIMIT = 100
 SAVE_TEST_OUTPUTS = True
 
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
+# --- File locations (from config) ---
+from trplots.config import OUTPUT_BASE, OTHER_DATA
 
-CSV_PATH  = f"{BASE_DIR}/Results/Debug/debug_info_83_loci_503_samples.csv"
-JSON_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-TSV_PATH  = f"{BASE_DIR}/Data/Other Data/sample_information.tsv"
+CSV_PATH = Path(OUTPUT_BASE).parent / "debug" / "debug_info_83_loci_503_samples.csv"
+JSON_PATH = OTHER_DATA / "strchive-loci.json"
+TSV_PATH = OTHER_DATA / "sample_information.tsv"
 
-OUTPUT_BASE     = f"{BASE_DIR}/Results/Matching Files Outputs"
-OUTPUT_DIR_CSV  = os.path.join(OUTPUT_BASE, "CSVs")
-OUTPUT_DIR_XLSX = os.path.join(OUTPUT_BASE, "Excels")
+OUTPUT_BASE = OUTPUT_BASE / "matching_files_outputs"
+OUTPUT_DIR_CSV = OUTPUT_BASE / "csvs"
+OUTPUT_DIR_XLSX = OUTPUT_BASE / "excels"
 os.makedirs(OUTPUT_DIR_CSV, exist_ok=True)
 os.makedirs(OUTPUT_DIR_XLSX, exist_ok=True)
 
 if TEST_MODE:
-    TEST_OUT = os.path.join(OUTPUT_BASE, "test_outputs")
+    TEST_OUT = OUTPUT_BASE / "test_outputs"
     os.makedirs(TEST_OUT, exist_ok=True)
-    OUTPUT_DIR_CSV  = TEST_OUT
+    OUTPUT_DIR_CSV = TEST_OUT
     OUTPUT_DIR_XLSX = TEST_OUT
 
-OUTPUT_CSV   = os.path.join(OUTPUT_DIR_CSV,  "83_loci_503_samples_withancestrycolumns_updated.csv")
-OUTPUT_EXCEL = os.path.join(OUTPUT_DIR_XLSX, "83_loci_503_samples_withancestrycolumns_updated.xlsx")
+OUTPUT_CSV = OUTPUT_DIR_CSV / "83_loci_503_samples_withancestrycolumns_updated.csv"
+OUTPUT_EXCEL = OUTPUT_DIR_XLSX / "83_loci_503_samples_withancestrycolumns_updated.xlsx"
 
 # --- Load data ---
 csv_data = pd.read_csv(CSV_PATH, sep=",", header=0)

@@ -12,20 +12,21 @@ import os
 import gzip
 import csv
 import pandas as pd
+from pathlib import Path
+
+from trplots.config import SEQ_DATA, OUTPUT_BASE
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
+VCF_PATH = SEQ_DATA / "83_loci_503_samples" / "1000g-ont-strchive-83_loci_503_samples.vcf.gz"
 
-VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
-
-CSV_DIR   = os.path.join(BASE_DIR, "Results/Reading Files Outputs/make_VCF_CSV_Excel_output")
-EXCEL_DIR = os.path.join(BASE_DIR, "Results/Reading Files Outputs/make_VCF_CSV_Excel_output")
+CSV_DIR = Path(OUTPUT_BASE) / "reading_files_outputs" / "make_VCF_CSV_Excel_output"
+EXCEL_DIR = CSV_DIR
 os.makedirs(CSV_DIR, exist_ok=True)
 os.makedirs(EXCEL_DIR, exist_ok=True)
 
 # Output filenames
-CSV_PATH   = os.path.join(CSV_DIR,   "83_loci_503_samples_CSV.csv")
-EXCEL_PATH = os.path.join(EXCEL_DIR, "83_loci_503_samples_Excel.xlsx")
+CSV_PATH = CSV_DIR / "83_loci_503_samples_CSV.csv"
+EXCEL_PATH = EXCEL_DIR / "83_loci_503_samples_Excel.xlsx"
 
 # --- Convert VCF (gz) to CSV ---
 with gzip.open(VCF_PATH, "rt") as vcf_in, open(CSV_PATH, "w", newline="") as csv_out:

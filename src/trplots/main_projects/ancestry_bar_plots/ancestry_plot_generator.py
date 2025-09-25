@@ -25,12 +25,13 @@ TEST_MODE = False                # Toggle this flag for quick testing (only one 
 TEST_LIMIT = 3                   # How many (gene,disease) plots in test mode
 SAVE_TEST_OUTPUTS = True         # Toggle saving plots when in test mode
 
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
+from trplots.config import SEQ_DATA, OTHER_DATA, OUTPUT_BASE
+from pathlib import Path
 
-SEQ_DATA_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/83_loci_503_samples_with_sex.xlsx"
-PORE_PATH = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary_Sample_ID_Pore.csv"
-OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Ancestry_Plot_Generator")
+# --- File locations ---
+SEQ_DATA_PATH = SEQ_DATA / "83_loci_503_samples" / "83_loci_503_samples_with_sex.xlsx"
+PORE_PATH = OTHER_DATA / "1kgp_ont_500_summary_sample_id_pore.csv"
+OUTPUT_BASE = Path(OUTPUT_BASE) / "plots" / "ancestry_plot_generator"
 
 if TEST_MODE:
     # In test mode: just one folder, no subfolders

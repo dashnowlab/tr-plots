@@ -10,11 +10,12 @@
 
 import os
 from pathlib import Path
+from trplots.config import OUTPUT_BASE
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots/Results/Plots/Allele_Length_Boxplots_Master/"
-INPUT_DIR = os.path.join(BASE_DIR, "PNG")
-OUTPUT_HTML = os.path.join(INPUT_DIR, "83_loci_503_samples_OneFile.html")
+BASE_DIR = Path(OUTPUT_BASE) / "plots" / "allele_length_boxplots_master"
+INPUT_DIR = BASE_DIR / "PNG"
+OUTPUT_HTML = INPUT_DIR / "83_loci_503_samples_OneFile.html"
 
 # --- Collect PNG files ---
 png_files = sorted([f for f in os.listdir(INPUT_DIR) if f.lower().endswith(".png")])

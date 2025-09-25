@@ -10,19 +10,20 @@
 """
 
 import os
+import os
 import pysam
 import pandas as pd
+from pathlib import Path
+
+from trplots.config import SEQ_DATA, OUTPUT_BASE
 
 # --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
-
-# Dataset
-VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+VCF_PATH = SEQ_DATA / "83_loci_503_samples" / "1000g-ont-strchive-83_loci_503_samples.vcf.gz"
 
 # Output
-OUTPUT_DIR = os.path.join(BASE_DIR, "Results/Reading Files Outputs/import_vcf_output")
+OUTPUT_DIR = Path(OUTPUT_BASE) / "reading_files_outputs" / "import_vcf_output"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
-OUTPUT_CSV = os.path.join(OUTPUT_DIR, "vcf_long_format.csv")
+OUTPUT_CSV = OUTPUT_DIR / "vcf_long_format.csv"
 
 # --- Open VCF (requires .tbi/.csi index) ---
 vcf_in = pysam.VariantFile(VCF_PATH)

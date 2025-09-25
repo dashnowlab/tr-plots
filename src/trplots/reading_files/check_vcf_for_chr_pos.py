@@ -10,13 +10,10 @@
 """
 
 import pysam
-import os
-
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
+from trplots.config import SEQ_DATA
 
 # Choose the dataset of interest
-VCF_PATH = f"{BASE_DIR}//Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
+VCF_PATH = SEQ_DATA / "83_loci_503_samples" / "1000g-ont-strchive-83_loci_503_samples.vcf.gz"
 
 # --- User-defined loci of interest (chromosome, position) ---
 USER_LOCI = {

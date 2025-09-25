@@ -16,35 +16,38 @@ import json
 import os
 import pysam
 import pandas as pd
+from pathlib import Path
 
 # --- TEST MODE ---
 TEST_MODE = True                 # Quick testing: process only some VCF records
 TEST_LIMIT = 100                 # Max VCF variants to process in test mode
 SAVE_TEST_OUTPUTS = True         # Save files in test mode if True
 
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
+# --- File locations (use central config) ---
+from trplots.config import SEQ_DATA, OTHER_DATA, OUTPUT_BASE
 
-VCF_PATH  = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
-JSON_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-CSV_PATH  = f"{BASE_DIR}/Data/Other Data/1KGP_ONT_500_Summary - Sheet1.csv"
+# Paths
+VCF_PATH = SEQ_DATA / "83_loci_503_samples" / "1000g-ont-strchive-83_loci_503_samples.vcf.gz"
+JSON_PATH = OTHER_DATA / "strchive-loci.json"
+# the summary file in repo is named '1kgp_ont_500_summary_-_sheet1.csv'
+CSV_PATH = OTHER_DATA / "1kgp_ont_500_summary_-_sheet1.csv"
 
 # Output roots (normal mode)
-OUTPUT_BASE     = f"{BASE_DIR}/Results/Matching Files Outputs"
-OUTPUT_DIR_CSV  = os.path.join(OUTPUT_BASE, "CSVs")
-OUTPUT_DIR_XLSX = os.path.join(OUTPUT_BASE, "Excels")
+OUTPUT_BASE = OUTPUT_BASE / "matching_files_outputs"
+OUTPUT_DIR_CSV = OUTPUT_BASE / "csvs"
+OUTPUT_DIR_XLSX = OUTPUT_BASE / "excels"
 os.makedirs(OUTPUT_DIR_CSV, exist_ok=True)
 os.makedirs(OUTPUT_DIR_XLSX, exist_ok=True)
 
 # If test mode, write into a single test_outputs folder
 if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
+    OUTPUT_DIR = OUTPUT_BASE / "test_outputs"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    CSV_OUT  = os.path.join(OUTPUT_DIR, "vcf_locus_sample_table.csv")
-    XLSX_OUT = os.path.join(OUTPUT_DIR, "vcf_locus_sample_table.xlsx")
+    CSV_OUT = OUTPUT_DIR / "vcf_locus_sample_table.csv"
+    XLSX_OUT = OUTPUT_DIR / "vcf_locus_sample_table.xlsx"
 else:
-    CSV_OUT  = os.path.join(OUTPUT_DIR_CSV, "vcf_locus_sample_table.csv")
-    XLSX_OUT = os.path.join(OUTPUT_DIR_XLSX, "vcf_locus_sample_table.xlsx")
+    CSV_OUT = OUTPUT_DIR_CSV / "vcf_locus_sample_table.csv"
+    XLSX_OUT = OUTPUT_DIR_XLSX / "vcf_locus_sample_table.xlsx"
 
 # --- Load population info (CSV) ---
 sample_info = pd.read_csv(CSV_PATH)

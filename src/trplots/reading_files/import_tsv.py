@@ -8,10 +8,10 @@
 """
 
 import csv
-import os
+from trplots.config import OTHER_DATA
 
 # --- File location ---
-TSV_PATH = "/Users/annelisethorn/Documents/GitHub/tr-plots/Data/Other Data/sample_information.tsv"
+TSV_PATH = OTHER_DATA / "sample_information.tsv"
 
 # --- Helper: read TSV into list of rows ---
 def read_tsv(file_path):

@@ -26,12 +26,13 @@ TEST_MODE = False          # Quick testing: preview, limit work
 TEST_LIMIT = 3            # Number of VCF records to process in test mode
 SAVE_TEST_OUTPUTS = False  # If True, also save files when TEST_MODE is on
 
-# --- File locations ---
-BASE_DIR = "/Users/annelisethorn/Documents/GitHub/tr-plots"
+# --- File locations (from config) ---
+from trplots.config import SEQ_DATA, OTHER_DATA, OUTPUT_BASE
+from pathlib import Path
 
-VCF_PATH = f"{BASE_DIR}/Data/Sequencing Data/83 Loci 503 Samples/1000g-ONT-STRchive-83_loci_503_samples.vcf.gz"
-METADATA_PATH = f"{BASE_DIR}/Data/Other Data/STRchive-loci.json"
-OUTPUT_BASE = os.path.join(BASE_DIR, "Results/Plots/Loci_Fix")
+VCF_PATH = SEQ_DATA / "83_loci_503_samples" / "1000g-ont-strchive-83_loci_503_samples.vcf.gz"
+METADATA_PATH = OTHER_DATA / "strchive-loci.json"
+OUTPUT_BASE = Path(OUTPUT_BASE) / "plots" / "loci_fix"
 
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
