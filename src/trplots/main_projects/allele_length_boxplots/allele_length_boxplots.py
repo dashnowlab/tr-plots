@@ -11,18 +11,22 @@
 ---------------------------------------------
 """
 
-import pandas as pd
 import re
-import plotly.express as px
-import os
 import ast
+import pandas as pd
+import plotly.express as px
 from pathlib import Path
-from trplots.config import BASE_DIR, ENSURE_DIR, ALLELE_LENGTH_PLOTS_OUTPUT
+
+from trplots.config import (
+    OTHER_DATA,                 # data/other_data
+    ENSURE_DIR,                 # results helper
+    ALLELE_LENGTH_PLOTS_OUTPUT  # results/plots/allele_length_boxplots
+)
 
 # --- TEST MODE ---
 TEST_MODE = True               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
-SAVE_TEST_OUTPUTS = True      # Toggle saving plots when in test mode
+SAVE_TEST_OUTPUTS = True       # Toggle saving plots when in test mode
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
@@ -31,19 +35,18 @@ TOP_MARGIN = 130               # fixed header space (annotations), keeps plot ar
 PNG_SCALE = 2
 
 # --- File locations (via config) ---
-DATA_PATH = BASE_DIR / "data" / "other_data" / "83_loci_503_samples_withancestrycolumns.csv"
-SHEET_NAME = "Sheet1"  # keep if you still need it elsewhere
+DATA_PATH = OTHER_DATA / "83_loci_503_samples_withancestrycolumns.csv"
 
-# Default output roots: results/plots/allele_length_boxplots/...
-OUTPUT_ROOT     = ALLELE_LENGTH_PLOTS_OUTPUT / "allele_length_boxplots"
-OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "png")
-OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "html")
+# --- Output roots (under results/...) ---
+# Normal (non-test) output -> results/plots/allele_length_boxplots/{png,html}
+OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots", "png")
+OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots", "html")
 
-# If test mode: override to a single test_outputs folder
+# If test mode: override to a single test_outputs folder under results/plots/allele_length_boxplots
 if TEST_MODE:
-    OUTPUT_ROOT     = ENSURE_DIR("plots", "allele_length_boxplots", "test_outputs")
-    OUTPUT_DIR_PNG  = OUTPUT_ROOT
-    OUTPUT_DIR_HTML = OUTPUT_ROOT
+    TEST_OUTPUT   = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots", "test_outputs")
+    OUTPUT_DIR_PNG = TEST_OUTPUT
+    OUTPUT_DIR_HTML = TEST_OUTPUT
 
 # --- POPULATION PALETTE (1kG-style) ---
 POP_COLOR = {
@@ -55,7 +58,6 @@ POP_COLOR = {
     'Unknown': '#7f7f7f',  # gray for unknowns
     'All': '#ff99cc',  # fallback for all
 }
-# Put "All" at the top, then a readable order
 SUPERPOP_ORDER = ['AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown', 'All']
 
 # --- Load data ---
@@ -203,7 +205,7 @@ def create_boxplot(filtered_df, gene, disease, original_df):
         margin=dict(t=TOP_MARGIN, r=40, b=60, l=80),
         autosize=False,
         plot_bgcolor='white',
-        showlegend=False,  # keep consistent
+        showlegend=False,
         font=dict(color='black'),
         xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black'),
         yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
@@ -215,7 +217,7 @@ def create_boxplot(filtered_df, gene, disease, original_df):
                      [f"Total Individuals per Population: {pop_lines[0]}"] + \
                      pop_lines[1:] + \
                      [f"Inheritance: {inheritance}"]
-    
+
     annos = [
         dict(
             text=main_title, x=0, xref="paper", xanchor="left",
@@ -248,21 +250,22 @@ for gene in df_agg['Gene'].unique():
 
         safe_gene = re.sub(r'[\\/]', '_', gene)
         safe_disease = re.sub(r'[\\/]', '_', disease)
-        png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_allele_length_boxplot.png")
-        html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_allele_length_boxplot.html")
+
+        png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_allele_length_boxplot.png"
+        html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_boxplot.html"
 
         if TEST_MODE:
             print(f"Previewing: {gene} / {disease}")
             fig.show()
             if SAVE_TEST_OUTPUTS:
-                fig.write_html(html_path)
-                fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                fig.write_html(str(html_path))
+                fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
             printed += 1
             if printed >= TEST_LIMIT:
                 break
         else:
-            fig.write_html(html_path)
-            fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+            fig.write_html(str(html_path))
+            fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
     if TEST_MODE and printed >= TEST_LIMIT:
         break
 

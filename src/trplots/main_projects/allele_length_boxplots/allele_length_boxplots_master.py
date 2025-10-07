@@ -11,20 +11,27 @@
 ---------------------------------------------
 """
 
-import os
 import re
 import ast
 import numpy as np
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
+import plotly.io as pio
 from pathlib import Path
-from trplots.config import BASE_DIR, ENSURE_DIR, ALLELE_LENGTH_PLOTS_OUTPUT
+
+# import shared paths/helpers from config
+from trplots.config import (
+    OTHER_DATA,                
+    ENSURE_DIR,
+    ALLELE_LENGTH_PLOTS_OUTPUT
+)
+
+pio.renderers.default = "browser"
 
 # --- TEST MODE ---
-TEST_MODE = True               # Toggle this flag for quick testing (preview only)
+TEST_MODE = False               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many locus plots to generate in test mode
-SAVE_TEST_OUTPUTS = True      # Toggle saving plots when in test mode (PNG/HTML)
+SAVE_TEST_OUTPUTS = True       # Toggle saving plots when in test mode (PNG/HTML)
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
@@ -33,19 +40,20 @@ TOP_MARGIN = 130               # space for the header lines
 PNG_SCALE = 2
 
 # --- File locations (via config) ---
-DATA_PATH = BASE_DIR / "data" / "other_data" / "allele_master_spreadsheet2.xlsx"  # Excel master
+# Excel master lives under data/other_data
+DATA_PATH = (OTHER_DATA / "allele_master_spreadsheet2.xlsx")
 SHEET_NAME = "Sheet1"
 
-# Default output roots (results/plots/allele_length_boxplots/...)
-OUTPUT_ROOT = ALLELE_LENGTH_PLOTS_OUTPUT / "allele_length_boxplots_master"
+# --- Output roots (under results/...) ---
+# Normal (non-test) output -> results/plots/allele_length_boxplots/allele_length_boxplots_master/{png,html}
 OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "png")
 OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "html")
 
-# If test mode: override to a single test_outputs folder
+# If test mode: override to a single test_outputs folder under results/plots/allele_length_boxplots
 if TEST_MODE:
-    OUTPUT_ROOT = ENSURE_DIR("plots", "allele_length_boxplots", "test_outputs")
-    OUTPUT_DIR_PNG = OUTPUT_ROOT
-    OUTPUT_DIR_HTML = OUTPUT_ROOT
+    TEST_OUTPUT = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "test_outputs")
+    OUTPUT_DIR_PNG = TEST_OUTPUT
+    OUTPUT_DIR_HTML = TEST_OUTPUT
 
 # --- POPULATION PALETTE (1kG-style) ---
 POP_COLOR = {
@@ -156,24 +164,23 @@ for required in ['Gene', 'Disease', 'Locus', 'SuperPop', 'Sample ID', 'Allele le
         raise ValueError(f"Missing required column: '{required}'")
 
 # -------------------- Plotting (ALL alleles) --------------------
-
 def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, show_points=False):
     """
     Build a horizontal boxplot for one Locus using **all allele lengths**,
     showing ALL populations even if they have no data.
     """
-    # Restrict to this locus (no pathogenicity filter)
     subset = raw_df[
         (raw_df['Gene'] == gene) &
         (raw_df['Disease'] == disease) &
         (raw_df['Locus'] == locus)
     ].copy()
 
-    # Always use the full category list
     ordered_categories = SUPERPOP_ORDER[:]
-    subset['SuperPop'] = pd.Categorical(subset['SuperPop'],
-                                        categories=ordered_categories,
-                                        ordered=True)
+    subset['SuperPop'] = pd.Categorical(
+        subset['SuperPop'],
+        categories=ordered_categories,
+        ordered=True
+    )
 
     # If subset is empty (no rows at all), create a dummy frame to keep axis happy
     plot_df = subset if not subset.empty else pd.DataFrame({
@@ -208,24 +215,20 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
         x = x[~np.isnan(x)]
         if x.size == 0:
             return None
-        # Quartiles (NumPy linear method; matches our fences + is stable across versions)
         q1 = np.percentile(x, 25)
         med = np.percentile(x, 50)
         q3 = np.percentile(x, 75)
         iqr = q3 - q1
         lf = q1 - 1.5 * iqr
         uf = q3 + 1.5 * iqr
-        # Whiskers are the most extreme values within the fences
         lower_whisk = x[x >= lf].min() if np.any(x >= lf) else x.min()
         upper_whisk = x[x <= uf].max() if np.any(x <= uf) else x.max()
-        # Outliers
         outliers = x[(x < lf) | (x > uf)]
         return q1, med, q3, lower_whisk, upper_whisk, outliers
 
     for pop in ordered_categories:
         xs = subset.loc[subset["SuperPop"] == pop, "Allele length"].to_numpy(dtype=float)
         xs = xs[~np.isnan(xs)]
-        # add an empty box so the category still shows even with no data
         if xs.size == 0:
             fig.add_trace(
                 go.Box(
@@ -236,7 +239,7 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
                     marker_color=POP_COLOR.get(pop, "#7f7f7f"),
                     showlegend=False,
                     boxpoints=False,
-                    hoverinfo="skip"  # nothing to hover
+                    hoverinfo="skip"
                 )
             )
             continue
@@ -246,7 +249,6 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
             continue
         q1, med, q3, lw, uw, out = stats
 
-        # Box (with explicit stats)
         fig.add_trace(
             go.Box(
                 orientation="h",
@@ -272,21 +274,19 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
             )
         )
 
-        # Outlier points as scatter (so they don't affect whiskers)
         if out.size:
             fig.add_trace(
                 go.Scatter(
                     x=out,
                     y=[pop] * out.size,
                     mode="markers",
-                    name="", 
+                    name="",
                     marker=dict(size=6, color=POP_COLOR.get(pop, "#7f7f7f")),
                     showlegend=False,
                     hovertemplate="Allele length: %{x}<br>Population: %{y}<extra></extra>",
                 )
             )
 
-    # Force the y-axis to show all categories
     fig.update_yaxes(
         categoryorder='array',
         categoryarray=ordered_categories,
@@ -296,7 +296,6 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
         title=""
     )
 
-    # Optional "no data" annotations
     missing = [c for c in ordered_categories if counts.get(c, 0) == 0]
     if show_no_data_note and missing:
         for cat in missing:
@@ -307,7 +306,6 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
                 showarrow=False, align='left'
             )
 
-    # Consistent sizing & style
     fig.update_layout(
         hovermode="closest",
         width=FIG_WIDTH,
@@ -321,7 +319,6 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
         yaxis=dict(ticks='outside', showline=True, linecolor='black'),
     )
 
-    # ---- Fixed-position header via annotations ----
     main_title = "<b>Allele Lengths per Population</b>"
     subtitle_lines = [
         f"{gene} - {disease}",
@@ -356,7 +353,6 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
 # --- Generate plots: one per Locus (ALL alleles) ---
 printed = 0
 
-# Unique (Gene, Disease, Locus) combinations from the raw df
 unique_triplets = (
     df[['Gene', 'Disease', 'Locus']]
     .dropna()
@@ -367,26 +363,26 @@ for _, row in unique_triplets.iterrows():
     gene, disease, locus = row['Gene'], row['Disease'], row['Locus']
     fig = create_boxplot_all(gene, disease, locus, df, show_no_data_note=True, show_points=False)
 
-    # If nothing at all was there, skip (fig will still render axis due to dummy; keep it)
+    # Safe filenames
     safe_gene = re.sub(r'[\\/]', '_', str(gene))
     safe_disease = re.sub(r'[\\/]', '_', str(disease))
-    safe_locus = re.sub(r'[\\/:*?"<>|]+', '_', str(locus))[:120]  # trim long names
+    safe_locus = re.sub(r'[\\/:*?"<>|]+', '_', str(locus))[:120]
 
-    png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.png")
-    html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.html")
+    png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.png"
+    html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.html"
 
     if TEST_MODE:
         print(f"Previewing: {gene} / {disease} / {locus}")
         fig.show()
         if SAVE_TEST_OUTPUTS:
-            fig.write_html(html_path)
-            fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+            fig.write_html(str(html_path))
+            fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
         printed += 1
         if printed >= TEST_LIMIT:
             break
     else:
-        fig.write_html(html_path)
-        fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+        fig.write_html(str(html_path))
+        fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
 
 if TEST_MODE:
     print("--- Test mode ON: Test completed ---")
