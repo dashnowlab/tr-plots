@@ -10,23 +10,28 @@
    - Test mode: previews a subset
 ---------------------------------------------
 """
-
 import re
 import ast
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
-from pathlib import Path
 
 # import shared paths/helpers from config
 from trplots.config import (
     OTHER_DATA,                
-    ENSURE_DIR,
-    ALLELE_LENGTH_PLOTS_OUTPUT
+    ENSURE_DIR
 )
 
 pio.renderers.default = "browser"
+
+# --- Input file locations (via config) ---
+DATA_PATH = (OTHER_DATA / "allele_master_spreadsheet2.xlsx")
+SHEET_NAME = "Sheet1"
+
+# --- Output roots ---
+OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "png")
+OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "html")
 
 # --- TEST MODE ---
 TEST_MODE = False               # Toggle this flag for quick testing (preview only)
@@ -38,16 +43,6 @@ FIG_WIDTH = 900
 FIG_HEIGHT = 500
 TOP_MARGIN = 130               # space for the header lines
 PNG_SCALE = 2
-
-# --- File locations (via config) ---
-# Excel master lives under data/other_data
-DATA_PATH = (OTHER_DATA / "allele_master_spreadsheet2.xlsx")
-SHEET_NAME = "Sheet1"
-
-# --- Output roots (under results/...) ---
-# Normal (non-test) output -> results/plots/allele_length_boxplots/allele_length_boxplots_master/{png,html}
-OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "png")
-OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "html")
 
 # If test mode: override to a single test_outputs folder under results/plots/allele_length_boxplots
 if TEST_MODE:

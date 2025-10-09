@@ -15,12 +15,10 @@ import re
 import ast
 import pandas as pd
 import plotly.express as px
-from pathlib import Path
 
 from trplots.config import (
     OTHER_DATA,                 # data/other_data
-    ENSURE_DIR,                 # results helper
-    ALLELE_LENGTH_PLOTS_OUTPUT  # results/plots/allele_length_boxplots
+    ENSURE_DIR                  # results helper
 )
 
 # --- TEST MODE ---
@@ -34,11 +32,10 @@ FIG_HEIGHT = 500
 TOP_MARGIN = 130               # fixed header space (annotations), keeps plot area aligned
 PNG_SCALE = 2
 
-# --- File locations (via config) ---
+# --- Input paths ---
 DATA_PATH = OTHER_DATA / "83_loci_503_samples_withancestrycolumns.csv"
 
-# --- Output roots (under results/...) ---
-# Normal (non-test) output -> results/plots/allele_length_boxplots/{png,html}
+# --- Output paths ---
 OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots", "png")
 OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots", "html")
 
