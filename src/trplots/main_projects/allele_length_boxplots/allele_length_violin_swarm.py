@@ -7,7 +7,7 @@ import plotly.express as px
 import plotly.io as pio
 
 # --- TEST MODE / RENDERER ---
-TEST_MODE = False               # set True if you want a quick on-screen preview
+TEST_MODE = True               # set True if you want a quick on-screen preview
 TEST_LIMIT = 3
 SAVE_TEST_OUTPUTS = False
 pio.renderers.default = "browser"  # ensures fig.show() opens from terminal
@@ -53,89 +53,6 @@ FIG_WIDTH = 900
 FIG_HEIGHT = 500
 TOP_MARGIN = 125
 PNG_SCALE = 2
-
-# --- Load data ---
-df = pd.read_csv(DATA_PATH)
-
-# --- Optional: create an aggregated "All" super-pop row per (Gene,Disease) ---
-if INCLUDE_AGGREGATE_ALL:
-    # Keep columns needed in plots/labels; duplicate rows with SuperPop='All'
-    keep_cols = df.columns.tolist()
-    agg = df.copy()
-    agg['SuperPop'] = 'All'
-    df = pd.concat([df, agg], ignore_index=True)
-
-# --- Ensure SuperPop has a stable categorical order ---
-if 'SuperPop' in df.columns:
-    # include only known categories + any unexpected ones appended
-    uniques = df['SuperPop'].astype(str).unique().tolist()
-    cats = [c for c in SUPERPOP_ORDER if c in uniques]
-    extras = [c for c in uniques if c not in cats]
-    df['SuperPop'] = pd.Categorical(df['SuperPop'], categories=cats + extras, ordered=True)
-
-# --- Aggregate setup (kept for compatibility) ---
-total_count = (
-    df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'], observed=False)['Sample ID']
-      .nunique()
-      .reset_index(name='total_count')
-)
-
-def count_affected(df_in, inh_mode, min_alleles):
-    # Pathogenic bands may be absent for some rows; guard with non-null mask
-    m = (
-        df_in['Inheritance'].astype(str).eq(f"['{inh_mode}']")
-        & df_in['Pathogenic min'].notna()
-        & df_in['Pathogenic max'].notna()
-    )
-    df_inh = df_in[m].copy()
-    if df_inh.empty:
-        return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
-
-    df_path = df_inh[
-        (df_inh['Allele length'] >= df_inh['Pathogenic min'])
-        & (df_inh['Allele length'] <= df_inh['Pathogenic max'])
-    ].copy()
-
-    if df_path.empty:
-        return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
-
-    grouped = (
-        df_path.groupby(['Disease', 'Gene', 'SuperPop', 'Sample ID'], observed=False)
-               .size()
-               .reset_index(name='path_count')
-    )
-    affected = grouped[grouped['path_count'] >= min_alleles]
-    return (
-        affected.groupby(['Disease', 'Gene', 'SuperPop'], observed=False)['Sample ID']
-                .nunique()
-                .reset_index(name=f'{inh_mode.lower()}_affected_counts')
-    )
-
-# Compute affected counts (safe even if empty)
-ad_affected = count_affected(df, 'AD', 1)
-ar_affected = count_affected(df, 'AR', 2)
-xd_affected = count_affected(df, 'XD', 1)
-xr_affected = count_affected(df, 'XR', 2)
-
-# Merge into summary and compute percentages
-df_agg = total_count.copy()
-for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
-    if not affected_df.empty:
-        df_agg = df_agg.merge(
-            affected_df,
-            on=['Disease', 'Gene', 'SuperPop'],
-            how='left'
-        )
-
-for inh in ['ad', 'ar', 'xd', 'xr']:
-    if f'{inh}_affected_counts' not in df_agg.columns:
-        df_agg[f'{inh}_affected_counts'] = 0
-    df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
-    df_agg[f'{inh}_percentage'] = np.where(
-        df_agg['total_count'] > 0,
-        df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100,
-        np.nan
-    )
 
 # --- Plotting helper ---
 def create_violin_beeswarm(original_df, gene, disease):
@@ -242,36 +159,121 @@ def create_violin_beeswarm(original_df, gene, disease):
 
     return fig
 
-# --- Generate plots ---
-printed = 0
-pairs = df[['Gene', 'Disease']].drop_duplicates().itertuples(index=False, name=None)
-for gene, disease in pairs:
-    fig = create_violin_beeswarm(df, gene, disease)
-    if fig is None:
-        continue
+def main():
+    # --- Load data ---
+    df = pd.read_csv(DATA_PATH)
 
-    safe_gene = re.sub(r'[\\/]', '_', gene)
-    safe_disease = re.sub(r'[\\/]', '_', disease)
-    png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.png")
-    html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.html")
+    # --- Optional: create an aggregated "All" super-pop row per (Gene,Disease) ---
+    if INCLUDE_AGGREGATE_ALL:
+        # Keep columns needed in plots/labels; duplicate rows with SuperPop='All'
+        agg = df.copy()
+        agg['SuperPop'] = 'All'
+        df = pd.concat([df, agg], ignore_index=True)
 
-    if TEST_MODE:
-        print(f"Previewing: {gene} / {disease}")
-        fig.show()  # should open in your default browser
-        if SAVE_TEST_OUTPUTS:
+    # --- Ensure SuperPop has a stable categorical order ---
+    if 'SuperPop' in df.columns:
+        uniques = df['SuperPop'].astype(str).unique().tolist()
+        cats = [c for c in SUPERPOP_ORDER if c in uniques]
+        extras = [c for c in uniques if c not in cats]
+        df['SuperPop'] = pd.Categorical(df['SuperPop'], categories=cats + extras, ordered=True)
+
+    # --- Aggregate setup (kept for compatibility) ---
+    total_count = (
+        df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'], observed=False)['Sample ID']
+          .nunique()
+          .reset_index(name='total_count')
+    )
+
+    def count_affected_local(df_in, inh_mode, min_alleles):
+        # Pathogenic bands may be absent for some rows; guard with non-null mask
+        m = (
+            df_in['Inheritance'].astype(str).eq(f"['{inh_mode}']")
+            & df_in['Pathogenic min'].notna()
+            & df_in['Pathogenic max'].notna()
+        )
+        df_inh = df_in[m].copy()
+        if df_inh.empty:
+            return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
+
+        df_path = df_inh[
+            (df_inh['Allele length'] >= df_inh['Pathogenic min'])
+            & (df_inh['Allele length'] <= df_inh['Pathogenic max'])
+        ].copy()
+
+        if df_path.empty:
+            return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
+
+        grouped = (
+            df_path.groupby(['Disease', 'Gene', 'SuperPop', 'Sample ID'], observed=False)
+                   .size()
+                   .reset_index(name='path_count')
+        )
+        affected = grouped[grouped['path_count'] >= min_alleles]
+        return (
+            affected.groupby(['Disease', 'Gene', 'SuperPop'], observed=False)['Sample ID']
+                    .nunique()
+                    .reset_index(name=f'{inh_mode.lower()}_affected_counts')
+        )
+
+    # Compute affected counts (safe even if empty)
+    ad_affected = count_affected_local(df, 'AD', 1)
+    ar_affected = count_affected_local(df, 'AR', 2)
+    xd_affected = count_affected_local(df, 'XD', 1)
+    xr_affected = count_affected_local(df, 'XR', 2)
+
+    # Merge into summary and compute percentages
+    df_agg = total_count.copy()
+    for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
+        if not affected_df.empty:
+            df_agg = df_agg.merge(
+                affected_df,
+                on=['Disease', 'Gene', 'SuperPop'],
+                how='left'
+            )
+
+    for inh in ['ad', 'ar', 'xd', 'xr']:
+        if f'{inh}_affected_counts' not in df_agg.columns:
+            df_agg[f'{inh}_affected_counts'] = 0
+        df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
+        df_agg[f'{inh}_percentage'] = np.where(
+            df_agg['total_count'] > 0,
+            df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100,
+            np.nan
+        )
+
+    # --- Generate plots ---
+    printed = 0
+    pairs = df[['Gene', 'Disease']].drop_duplicates().itertuples(index=False, name=None)
+    for gene, disease in pairs:
+        fig = create_violin_beeswarm(df, gene, disease)
+        if fig is None:
+            continue
+
+        safe_gene = re.sub(r'[\\/]', '_', gene)
+        safe_disease = re.sub(r'[\\/]', '_', disease)
+        png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.png")
+        html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.html")
+
+        if TEST_MODE:
+            print(f"Previewing: {gene} / {disease}")
+            fig.show()
+            if SAVE_TEST_OUTPUTS:
+                fig.write_html(html_path)
+                try:
+                    fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                except Exception as e:
+                    print(f"[PNG export skipped] {e}")
+            printed += 1
+            if printed >= TEST_LIMIT:
+                break
+        else:
             fig.write_html(html_path)
             try:
                 fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
             except Exception as e:
                 print(f"[PNG export skipped] {e}")
-        printed += 1
-        if printed >= TEST_LIMIT:
-            break
-    else:
-        fig.write_html(html_path)
-        try:
-            fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-        except Exception as e:
-            print(f"[PNG export skipped] {e}")
 
-print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+    print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+
+if __name__ == "__main__":
+    main()

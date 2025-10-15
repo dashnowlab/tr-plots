@@ -34,9 +34,9 @@ OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_b
 OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "html")
 
 # --- TEST MODE ---
-TEST_MODE = False               # Toggle this flag for quick testing (preview only)
+TEST_MODE = True               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many locus plots to generate in test mode
-SAVE_TEST_OUTPUTS = True       # Toggle saving plots when in test mode (PNG/HTML)
+SAVE_TEST_OUTPUTS = False       # Toggle saving plots when in test mode (PNG/HTML)
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
@@ -131,32 +131,6 @@ def _make_locus(row):
     gene = str(row.get('Gene', '')).strip()
     disease = str(row.get('Disease', '')).strip()
     return f"{gene}|{disease}|{chrom}:{pos}"
-
-# --- Load data ---
-df = pd.read_excel(DATA_PATH, sheet_name=SHEET_NAME)
-
-# Ensure numeric columns are numeric
-if 'Allele length' in df.columns:
-    df['Allele length'] = pd.to_numeric(df['Allele length'], errors='coerce')
-
-# Normalize inheritance (used only for subtitle context)
-if 'Inheritance' in df.columns:
-    df['Inheritance_norm'] = df['Inheritance'].apply(_norm_inh)
-else:
-    df['Inheritance_norm'] = 'Unknown'
-
-# Create Locus column
-df['Locus'] = df.apply(_make_locus, axis=1)
-
-# --- Add 'All' population (aggregate superpop row copied from the raw table) ---
-df_all = df.copy()
-df_all["SuperPop"] = "All"
-df = pd.concat([df, df_all], ignore_index=True)
-
-# --- Safety: ensure required columns exist ---
-for required in ['Gene', 'Disease', 'Locus', 'SuperPop', 'Sample ID', 'Allele length']:
-    if required not in df.columns:
-        raise ValueError(f"Missing required column: '{required}'")
 
 # -------------------- Plotting (ALL alleles) --------------------
 def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, show_points=False):
@@ -345,41 +319,84 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
 
     return fig
 
-# --- Generate plots: one per Locus (ALL alleles) ---
-printed = 0
+# --- Main entrypoint (make script import-safe) ---
+def main():
+    # Load data
+    df = pd.read_excel(DATA_PATH, sheet_name=SHEET_NAME)
 
-unique_triplets = (
-    df[['Gene', 'Disease', 'Locus']]
-    .dropna()
-    .drop_duplicates()
-)
+    # Ensure numeric columns are numeric
+    if 'Allele length' in df.columns:
+        df['Allele length'] = pd.to_numeric(df['Allele length'], errors='coerce')
 
-for _, row in unique_triplets.iterrows():
-    gene, disease, locus = row['Gene'], row['Disease'], row['Locus']
-    fig = create_boxplot_all(gene, disease, locus, df, show_no_data_note=True, show_points=False)
+    # Normalize inheritance (used only for subtitle context)
+    if 'Inheritance' in df.columns:
+        df['Inheritance_norm'] = df['Inheritance'].apply(_norm_inh)
+    else:
+        df['Inheritance_norm'] = 'Unknown'
 
-    # Safe filenames
-    safe_gene = re.sub(r'[\\/]', '_', str(gene))
-    safe_disease = re.sub(r'[\\/]', '_', str(disease))
-    safe_locus = re.sub(r'[\\/:*?"<>|]+', '_', str(locus))[:120]
+    # Create Locus column
+    df['Locus'] = df.apply(_make_locus, axis=1)
 
-    png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.png"
-    html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.html"
+    # --- Add 'All' population (aggregate superpop row copied from the raw table) ---
+    df_all = df.copy()
+    df_all["SuperPop"] = "All"
+    df = pd.concat([df, df_all], ignore_index=True)
+
+    # --- Safety: ensure required columns exist ---
+    for required in ['Gene', 'Disease', 'Locus', 'SuperPop', 'Sample ID', 'Allele length']:
+        if required not in df.columns:
+            raise ValueError(f"Missing required column: '{required}'")
+
+    # --- Generate plots: one per Locus (ALL alleles) ---
+    printed = 0
+
+    unique_triplets = (
+        df[['Gene', 'Disease', 'Locus']]
+        .dropna()
+        .drop_duplicates()
+    )
+
+    for _, row in unique_triplets.iterrows():
+        gene, disease, locus = row['Gene'], row['Disease'], row['Locus']
+        fig = create_boxplot_all(gene, disease, locus, df, show_no_data_note=True, show_points=False)
+
+        # Safe filenames
+        safe_gene = re.sub(r'[\\/]', '_', str(gene))
+        safe_disease = re.sub(r'[\\/]', '_', str(disease))
+        safe_locus = re.sub(r'[\\/:*?"<>|]+', '_', str(locus))[:120]
+
+        png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.png"
+        html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.html"
+
+        if TEST_MODE:
+            print(f"Previewing: {gene} / {disease} / {locus}")
+            fig.show()
+            if SAVE_TEST_OUTPUTS:
+                try:
+                    fig.write_html(str(html_path))
+                except Exception as e:
+                    print(f"Failed to write HTML {html_path}: {e}")
+                try:
+                    fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                except Exception as e:
+                    print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
+            printed += 1
+            if printed >= TEST_LIMIT:
+                break
+        else:
+            try:
+                fig.write_html(str(html_path))
+            except Exception as e:
+                print(f"Failed to write HTML {html_path}: {e}")
+            try:
+                fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+            except Exception as e:
+                print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
 
     if TEST_MODE:
-        print(f"Previewing: {gene} / {disease} / {locus}")
-        fig.show()
-        if SAVE_TEST_OUTPUTS:
-            fig.write_html(str(html_path))
-            fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-        printed += 1
-        if printed >= TEST_LIMIT:
-            break
+        print("--- Test mode ON: Test completed ---")
     else:
-        fig.write_html(str(html_path))
-        fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+        print("--- Done ---")
 
-if TEST_MODE:
-    print("--- Test mode ON: Test completed ---")
-else:
-    print("--- Done ---")
+if __name__ == "__main__":
+    main()

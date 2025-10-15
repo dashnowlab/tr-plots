@@ -15,16 +15,20 @@ import re
 import ast
 import pandas as pd
 import plotly.express as px
+import plotly.io as pio
 
 from trplots.config import (
     OTHER_DATA,                 # data/other_data
     ENSURE_DIR                  # results helper
 )
 
+# make Plotly open figures in the browser by default
+pio.renderers.default = "browser"
+
 # --- TEST MODE ---
 TEST_MODE = True               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
-SAVE_TEST_OUTPUTS = True       # Toggle saving plots when in test mode
+SAVE_TEST_OUTPUTS = False       # Toggle saving plots when in test mode
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
@@ -57,30 +61,7 @@ POP_COLOR = {
 }
 SUPERPOP_ORDER = ['AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown', 'All']
 
-# --- Load data ---
-df = pd.read_csv(DATA_PATH)
-
-# --- Add 'All' population ---
-df_all = df.copy()
-df_all["SuperPop"] = "All"
-df = pd.concat([df, df_all], ignore_index=True)
-
-# --- Flag pathogenic individuals using thresholds ---
-# True if allele length is within [Pathogenic min, Pathogenic max]
-df['Is pathogenic'] = (
-    (df['Allele length'] >= df['Pathogenic min']) &
-    (df['Allele length'] <= df['Pathogenic max'])
-)
-
-# --- Aggregate setup ---
-# Count unique samples per (Disease, Gene, SuperPop, Allele length)
-total_count = (
-    df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'])['Sample ID']
-      .nunique()
-      .reset_index(name='total_count')
-)
-
-# Helper: count affected individuals per inheritance model
+# --- Helper: count affected individuals per inheritance model ---
 def count_affected(df_in, inh_mode, min_alleles):
     """
     For a given inheritance model (e.g., 'AD'), count individuals
@@ -102,26 +83,6 @@ def count_affected(df_in, inh_mode, min_alleles):
                 .nunique()
                 .reset_index(name=f'{inh_mode.lower()}_affected_counts')
     )
-
-# --- Compute affected counts for each model ---
-ad_affected = count_affected(df, 'AD', 1)
-ar_affected = count_affected(df, 'AR', 2)
-xd_affected = count_affected(df, 'XD', 1)
-xr_affected = count_affected(df, 'XR', 2)
-
-# --- Merge affected counts into main summary ---
-df_agg = total_count.copy()
-for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
-    df_agg = df_agg.merge(
-        affected_df,
-        on=['Disease', 'Gene', 'SuperPop'],
-        how='left'
-    )
-
-# Fill missing counts with 0 and compute percentages
-for inh in ['ad', 'ar', 'xd', 'xr']:
-    df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
-    df_agg[f'{inh}_percentage'] = df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100
 
 def _wrap_to_lines(s: str, max_len: int = 110):
     """Split a comma-separated string into ~max_len lines, returning a list of lines."""
@@ -235,36 +196,91 @@ def create_boxplot(filtered_df, gene, disease, original_df):
     fig.update_layout(annotations=annos)
     return fig
 
-# --- Generate plots ---
-printed = 0
-for gene in df_agg['Gene'].unique():
-    diseases = df_agg[df_agg['Gene'] == gene]['Disease'].unique()
-    for disease in diseases:
-        sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
-        fig = create_boxplot(sub_df.copy(), gene, disease, df)
-        if not fig:
-            continue
+def main():
+    # Load data
+    df = pd.read_csv(DATA_PATH)
 
-        safe_gene = re.sub(r'[\\/]', '_', gene)
-        safe_disease = re.sub(r'[\\/]', '_', disease)
+    # --- Add 'All' population ---
+    df_all = df.copy()
+    df_all["SuperPop"] = "All"
+    df = pd.concat([df, df_all], ignore_index=True)
 
-        png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_allele_length_boxplot.png"
-        html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_boxplot.html"
+    # --- Flag pathogenic individuals using thresholds ---
+    # True if allele length is within [Pathogenic min, Pathogenic max]
+    if 'Allele length' not in df.columns or 'Pathogenic min' not in df.columns or 'Pathogenic max' not in df.columns:
+        raise ValueError("DATA file missing one of required columns: 'Allele length', 'Pathogenic min', 'Pathogenic max'")
 
-        if TEST_MODE:
-            print(f"Previewing: {gene} / {disease}")
-            fig.show()
-            if SAVE_TEST_OUTPUTS:
+    df['Is pathogenic'] = (
+        (df['Allele length'] >= df['Pathogenic min']) &
+        (df['Allele length'] <= df['Pathogenic max'])
+    )
+
+    # --- Aggregate setup ---
+    # Count unique samples per (Disease, Gene, SuperPop, Allele length)
+    total_count = (
+        df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'])['Sample ID']
+          .nunique()
+          .reset_index(name='total_count')
+    )
+
+    # --- Compute affected counts for each model ---
+    ad_affected = count_affected(df, 'AD', 1)
+    ar_affected = count_affected(df, 'AR', 2)
+    xd_affected = count_affected(df, 'XD', 1)
+    xr_affected = count_affected(df, 'XR', 2)
+
+    # --- Merge affected counts into main summary ---
+    df_agg = total_count.copy()
+    for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
+        df_agg = df_agg.merge(
+            affected_df,
+            on=['Disease', 'Gene', 'SuperPop'],
+            how='left'
+        )
+
+    # Fill missing counts with 0 and compute percentages
+    for inh in ['ad', 'ar', 'xd', 'xr']:
+        df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
+        df_agg[f'{inh}_percentage'] = df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100
+
+    # --- Generate plots ---
+    printed = 0
+    for gene in df_agg['Gene'].unique():
+        diseases = df_agg[df_agg['Gene'] == gene]['Disease'].unique()
+        for disease in diseases:
+            sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
+            fig = create_boxplot(sub_df.copy(), gene, disease, df)
+            if not fig:
+                continue
+
+            safe_gene = re.sub(r'[\\/]', '_', gene)
+            safe_disease = re.sub(r'[\\/]', '_', disease)
+
+            png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_allele_length_boxplot.png"
+            html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_boxplot.html"
+
+            if TEST_MODE:
+                print(f"Previewing: {gene} / {disease}")
+                fig.show(renderer="browser")
+                if SAVE_TEST_OUTPUTS:
+                    fig.write_html(str(html_path))
+                    try:
+                        fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                    except Exception as e:
+                        print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
+                printed += 1
+                if printed >= TEST_LIMIT:
+                    break
+            else:
                 fig.write_html(str(html_path))
-                fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-            printed += 1
-            if printed >= TEST_LIMIT:
-                break
-        else:
-            fig.write_html(str(html_path))
-            fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-    if TEST_MODE and printed >= TEST_LIMIT:
-        break
+                try:
+                    fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                except Exception as e:
+                    print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
+        if TEST_MODE and printed >= TEST_LIMIT:
+            break
 
-# --- Finished ---
-print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+    print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+
+if __name__ == "__main__":
+    main()

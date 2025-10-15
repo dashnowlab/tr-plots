@@ -21,9 +21,9 @@ import pandas as pd
 from pathlib import Path
 
 # --- TEST MODE ---
-TEST_MODE = False
+TEST_MODE = True
 TEST_LIMIT = 100
-SAVE_TEST_OUTPUTS = True
+SAVE_TEST_OUTPUTS = False
 
 # --- File locations (from config) ---
 from trplots.config import OUTPUT_BASE, OTHER_DATA
@@ -46,16 +46,6 @@ if TEST_MODE:
 
 OUTPUT_CSV = OUTPUT_DIR_CSV / "83_loci_503_samples_withancestrycolumns_updated.csv"
 OUTPUT_EXCEL = OUTPUT_DIR_XLSX / "83_loci_503_samples_withancestrycolumns_updated.xlsx"
-
-# --- Load data ---
-csv_data = pd.read_csv(CSV_PATH, sep=",", header=0)
-with open(JSON_PATH, "r") as file:
-    json_data = json.load(file)
-tsv_data = pd.read_csv(TSV_PATH, sep="\t", skiprows=1)
-
-work_df = csv_data.copy()
-if TEST_MODE:
-    work_df = work_df.head(TEST_LIMIT)
 
 # --- Add ancestry population columns ---
 def add_population_info(csv_df, tsv_df):
@@ -140,68 +130,83 @@ def fill_column(df, col, default=''):
     df[col] = df[col].replace({'Unknown': 'unknown', 'unknown': 'unknown'})
     return df
 
-# --- Apply the enrichment ---
-df = add_population_info(work_df, tsv_data)
-df = add_population_info_with_cleaned(df)
-df = add_json_info_by_chrom_pos(df, json_data)
+# --- Main execution moved into function ---
+def main():
+    # Load inputs
+    csv_data = pd.read_csv(CSV_PATH, sep=",", header=0)
+    with open(JSON_PATH, "r") as file:
+        json_data = json.load(file)
+    tsv_data = pd.read_csv(TSV_PATH, sep="\t", skiprows=1)
 
-# --- Derived fields ---
-df['Motif length']  = df['Motif'].astype(str).str.len().replace(0, '')
-df['Allele length'] = pd.to_numeric(df['Allele length'], errors='coerce')
-df['Repeat count'] = df.apply(
-    lambda row: row['Allele length'] / row['Motif length'] if row['Motif length'] not in ['', 0] else '',
-    axis=1
-)
-df['Sample ID Cleaned'] = df['Sample ID'].astype(str).str.strip()
+    work_df = csv_data.copy()
+    if TEST_MODE:
+        work_df = work_df.head(TEST_LIMIT)
 
-# --- Outlier columns ---
-df = fill_column(df, 'Is Outlier', '')
-df = fill_column(df, 'Is Extreme Outlier', '')
+    # Apply enrichment
+    df = add_population_info(work_df, tsv_data)
+    df = add_population_info_with_cleaned(df)
+    df = add_json_info_by_chrom_pos(df, json_data)
 
-# --- Disease ID ---
-df = fill_column(df, 'Disease ID', '')
+    # --- Derived fields ---
+    df['Motif length']  = df['Motif'].astype(str).str.len().replace(0, '')
+    df['Allele length'] = pd.to_numeric(df['Allele length'], errors='coerce')
+    df['Repeat count'] = df.apply(
+        lambda row: row['Allele length'] / row['Motif length'] if row['Motif length'] not in ['', 0] else '',
+        axis=1
+    )
+    df['Sample ID Cleaned'] = df['Sample ID'].astype(str).str.strip()
 
-# --- Flank Motif ---
-df = fill_column(df, 'Flank Motif', '')
+    # --- Outlier columns ---
+    df = fill_column(df, 'Is Outlier', '')
+    df = fill_column(df, 'Is Extreme Outlier', '')
 
-# --- Pathogenic/Benign columns ---
-for col in ['Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max']:
-    df[col] = pd.to_numeric(df.get(col, ''), errors='coerce').replace({np.nan: '', None: ''})
+    # --- Disease ID ---
+    df = fill_column(df, 'Disease ID', '')
 
-def flag_pathogenic(row):
-    if row['Pathogenic min'] == '' or row['Pathogenic max'] == '' or row['Repeat count'] == '':
-        return ''
-    try:
-        return row['Pathogenic min'] <= row['Repeat count'] <= row['Pathogenic max']
-    except Exception:
-        return ''
-df['Is pathogenic'] = df.apply(flag_pathogenic, axis=1)
+    # --- Flank Motif ---
+    df = fill_column(df, 'Flank Motif', '')
 
-# --- Ensure all required columns exist and are filled ---
-required_cols = [
-    'Chromosome', 'Position', 'Gene', 'Disease', 'Disease ID', 'Motif', 'Motif length',
-    'Allele length', 'Repeat count', 'Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max',
-    'Inheritance', 'Sample ID', 'Sample ID Cleaned', 'SubPop', 'SuperPop', 'Sex',
-    'Flank Motif', 'Is Outlier', 'Is Extreme Outlier'
-]
-for col in required_cols:
-    df = fill_column(df, col, '')
+    # --- Pathogenic/Benign columns ---
+    for col in ['Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max']:
+        df[col] = pd.to_numeric(df.get(col, ''), errors='coerce').replace({np.nan: '', None: ''})
 
-# --- Reorder columns for readability ---
-df = df[required_cols + [c for c in df.columns if c not in required_cols]]
+    def flag_pathogenic(row):
+        if row['Pathogenic min'] == '' or row['Pathogenic max'] == '' or row['Repeat count'] == '':
+            return ''
+        try:
+            return row['Pathogenic min'] <= row['Repeat count'] <= row['Pathogenic max']
+        except Exception:
+            return ''
+    df['Is pathogenic'] = df.apply(flag_pathogenic, axis=1)
 
-# --- Save outputs ---
-if TEST_MODE:
-    print(f"[TEST] Rows processed: {len(df)} (limit={TEST_LIMIT})")
-    if SAVE_TEST_OUTPUTS:
+    # --- Ensure all required columns exist and are filled ---
+    required_cols = [
+        'Chromosome', 'Position', 'Gene', 'Disease', 'Disease ID', 'Motif', 'Motif length',
+        'Allele length', 'Repeat count', 'Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max',
+        'Inheritance', 'Sample ID', 'Sample ID Cleaned', 'SubPop', 'SuperPop', 'Sex',
+        'Flank Motif', 'Is Outlier', 'Is Extreme Outlier'
+    ]
+    for col in required_cols:
+        df = fill_column(df, col, '')
+
+    # --- Reorder columns for readability ---
+    df = df[required_cols + [c for c in df.columns if c not in required_cols]]
+
+    # --- Save outputs ---
+    if TEST_MODE:
+        print(f"[TEST] Rows processed: {len(df)} (limit={TEST_LIMIT})")
+        if SAVE_TEST_OUTPUTS:
+            df.to_csv(OUTPUT_CSV, index=False)
+            df.to_excel(OUTPUT_EXCEL, index=False)
+            print(f"[TEST] Saved CSV  → {OUTPUT_CSV}")
+            print(f"[TEST] Saved XLSX → {OUTPUT_EXCEL}")
+    else:
         df.to_csv(OUTPUT_CSV, index=False)
         df.to_excel(OUTPUT_EXCEL, index=False)
-        print(f"[TEST] Saved CSV  → {OUTPUT_CSV}")
-        print(f"[TEST] Saved XLSX → {OUTPUT_EXCEL}")
-else:
-    df.to_csv(OUTPUT_CSV, index=False)
-    df.to_excel(OUTPUT_EXCEL, index=False)
-    print(f"Saved CSV  → {OUTPUT_CSV}")
-    print(f"Saved XLSX → {OUTPUT_EXCEL}")
+        print(f"Saved CSV  → {OUTPUT_CSV}")
+        print(f"Saved XLSX → {OUTPUT_EXCEL}")
 
-print("--- Done ---")
+    print("--- Done ---")
+
+if __name__ == "__main__":
+    main()

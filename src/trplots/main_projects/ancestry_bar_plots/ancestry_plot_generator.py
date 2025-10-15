@@ -15,15 +15,18 @@
 import pandas as pd
 import re
 import plotly.graph_objects as go
+import plotly.io as pio
 import os
 import ast
 import numpy as np
 from statsmodels.stats import proportion
 
+pio.renderers.default = "browser"
+
 # --- TEST MODE ---
-TEST_MODE = False                # Toggle this flag for quick testing (only one plot generated)
+TEST_MODE = True                # Toggle this flag for quick testing (only one plot generated)
 TEST_LIMIT = 3                   # How many (gene,disease) plots in test mode
-SAVE_TEST_OUTPUTS = True         # Toggle saving plots when in test mode
+SAVE_TEST_OUTPUTS = False         # Toggle saving plots when in test mode
 
 from trplots.config import SEQ_DATA, OTHER_DATA, OUTPUT_BASE
 from pathlib import Path
@@ -233,7 +236,7 @@ if 'All' in all_pops:
 superpop_order = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS']
 
 # --- Build plot for a (Gene, Disease) pair with Pore+Sex dropdowns ---
-def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
+def create_horizontal_bar_plot(filtered_df, gene, disease, original_df, superpop_order):
     """
     Builds a horizontal bar plot showing % pathogenic individuals across populations,
     with dropdowns for Pore type and Sex. Ensures all populations appear on Y axis.
@@ -283,7 +286,7 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
             })
             df_grouped = pd.concat([all_row, grp], ignore_index=True)
 
-            # Ensure all populations appear (fixed order)
+            # Ensure all populations appear (use passed-in order)
             df_grouped = (
                 df_grouped
                 .set_index('Cleaned population description')
@@ -434,64 +437,76 @@ def create_horizontal_bar_plot(filtered_df, gene, disease, original_df):
             range=[0, 100], tickmode='linear', tick0=0, dtick=10,
             ticks='outside', showline=True, linecolor='black', linewidth=1,
             zeroline=False, tickfont=dict(color='black'),
-            titlefont=dict(color='black'), title="Pathogenic Genotypes (%)"
+            title=dict(text="Pathogenic Genotypes (%)", font=dict(color='black'))
         ),
         yaxis=dict(
             title="",
             showline=True,
             linecolor='black',
             categoryorder='array',
-            categoryarray=superpop_order   # force all populations in fixed order
+            categoryarray=superpop_order   # force order from caller
         )
     )
     return fig
 
 # --- Generate plots ---
-made = 0
-for gene in df_agg['Gene'].unique():
-    for disease in df_agg[df_agg['Gene'] == gene]['Disease'].unique():
-        sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
+def main():
+    # Determine dynamic population order from the loaded dataframe `df`
+    all_pops = sorted(set(df['Cleaned population description'].dropna().astype(str).tolist()))
+    # Preserve a canonical order for major superpops, append any extras found in data
+    canonical = ['AFR', 'AMR', 'EAS', 'EUR', 'SAS']
+    extras = [p for p in all_pops if p not in canonical and p != 'All']
+    superpop_order = ['All'] + [p for p in canonical if p in all_pops] + extras
 
-        # Skip if no meaningful data
-        if sub_df['total_count'].sum() == 0:
-            continue
+    # --- Generate plots (previously top-level code) ---
+    made = 0
+    for gene in df_agg['Gene'].unique():
+        for disease in df_agg[df_agg['Gene'] == gene]['Disease'].unique():
+            sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
 
-        fig = create_horizontal_bar_plot(sub_df.copy(), gene, disease, df)
-        if not fig:
-            continue
+            # Skip if no meaningful data
+            if sub_df['total_count'].sum() == 0:
+                continue
 
-        safe_gene = re.sub(r'[\\/]', '_', gene)
-        safe_disease = re.sub(r'[\\/]', '_', disease)
+            fig = create_horizontal_bar_plot(sub_df.copy(), gene, disease, df, superpop_order)
+            if not fig:
+                continue
 
-        html_path = os.path.join(OUTPUT_HTML_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html")
-        png_path  = os.path.join(OUTPUT_PNG_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.png")
+            safe_gene = re.sub(r'[\\/]', '_', gene)
+            safe_disease = re.sub(r'[\\/]', '_', disease)
 
-        # Save files
-        fig.write_html(html_path)
-        fig.write_image(png_path, scale=2)   # scale=2 makes higher resolution
+            html_path = os.path.join(OUTPUT_HTML_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.html")
+            png_path  = os.path.join(OUTPUT_PNG_DIR, f"{safe_gene}_{safe_disease}_ancestry_plot.png")
 
-        if TEST_MODE:
-            # Preview only in test mode
-            print(f"Previewing: {gene} / {disease}")
-            fig.show()
-
-            # Optional save in test mode
-            if SAVE_TEST_OUTPUTS:
-                print(f"Saving: {gene} / {disease}")
-                fig.write_html(html_path)
-
-            made += 1
-            if made >= TEST_LIMIT:
-                break
-        else:
-            # Non-test mode: save quietly (no printing/showing)
+            # Save files
             fig.write_html(html_path)
+            try:
+                fig.write_image(png_path, scale=2)   # scale=2 makes higher resolution
+            except Exception:
+                pass
 
-    if TEST_MODE and made >= TEST_LIMIT:
-        break
+            if TEST_MODE:
+                # Preview only in test mode
+                print(f"Previewing: {gene} / {disease}")
+                fig.show(renderer="browser")
 
-# --- Finished ---
-if TEST_MODE:
-    print("--- Test mode ON: Test completed ---")
-else:
-    print("--- Done ---")
+                # Optional save in test mode
+                if SAVE_TEST_OUTPUTS:
+                    print(f"Saving: {gene} / {disease}")
+                    fig.write_html(html_path)
+
+                made += 1
+                if made >= TEST_LIMIT:
+                    break
+        if TEST_MODE and made >= TEST_LIMIT:
+            break
+
+    # --- Finished ---
+    if TEST_MODE:
+        print("--- Test mode ON: Test completed ---")
+    else:
+        print("--- Done ---")
+
+# Guard to avoid execution on import
+if __name__ == "__main__":
+    main()

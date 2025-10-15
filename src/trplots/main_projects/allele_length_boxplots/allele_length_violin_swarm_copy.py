@@ -15,6 +15,7 @@ import re
 import ast
 import pandas as pd
 import plotly.express as px
+import plotly.io as pio
 from pathlib import Path
 
 # Pull paths from the shared config
@@ -24,8 +25,11 @@ from trplots.config import (
     ALLELE_LENGTH_PLOTS_OUTPUT,
 )
 
+# make Plotly open figures in the browser by default
+pio.renderers.default = "browser"
+
 # --- TEST MODE ---
-TEST_MODE = False              # Toggle this flag for quick testing (preview only)
+TEST_MODE = True              # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
 SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode
 
@@ -61,27 +65,7 @@ POP_COLOR = {
 }
 SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
 
-# --- Load data ---
-df = pd.read_csv(DATA_CSV)
-
-# --- Add 'All' population ---
-df_all = df.copy()
-df_all["SuperPop"] = "All"
-df = pd.concat([df, df_all], ignore_index=True)
-
-# --- Flag pathogenic individuals using thresholds ---
-df['Is pathogenic'] = (
-    (df['Allele length'] >= df['Pathogenic min']) &
-    (df['Allele length'] <= df['Pathogenic max'])
-)
-
-# --- Aggregate setup (to match boxplot script; not strictly required for violin) ---
-total_count = (
-    df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'])['Sample ID']
-      .nunique()
-      .reset_index(name='total_count')
-)
-
+# --- Helper functions (kept at module level) ---
 def count_affected(df_in, inh_mode, min_alleles):
     df_inh = df_in[df_in['Inheritance'].astype(str) == f"['{inh_mode}']"]
     df_path = df_inh[df_inh['Is pathogenic'] == True]
@@ -96,23 +80,6 @@ def count_affected(df_in, inh_mode, min_alleles):
                 .nunique()
                 .reset_index(name=f'{inh_mode.lower()}_affected_counts')
     )
-
-ad_affected = count_affected(df, 'AD', 1)
-ar_affected = count_affected(df, 'AR', 2)
-xd_affected = count_affected(df, 'XD', 1)
-xr_affected = count_affected(df, 'XR', 2)
-
-df_agg = total_count.copy()
-for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
-    df_agg = df_agg.merge(
-        affected_df,
-        on=['Disease', 'Gene', 'SuperPop'],
-        how='left'
-    )
-
-for inh in ['ad', 'ar', 'xd', 'xr']:
-    df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
-    df_agg[f'{inh}_percentage'] = df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100
 
 def _wrap_to_lines(s: str, max_len: int = 110):
     parts = [p.strip() for p in s.split(",")]
@@ -230,36 +197,81 @@ def create_violin_swarm(filtered_df, gene, disease, original_df):
 
     return fig
 
-# --- Generate plots ---
-printed = 0
-for gene in df_agg['Gene'].unique():
-    diseases = df_agg[df_agg['Gene'] == gene]['Disease'].unique()
-    for disease in diseases:
-        sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
-        fig = create_violin_swarm(sub_df.copy(), gene, disease, df)
-        if not fig:
-            continue
+# --- Main function: move top-level processing here ---
+def main():
+    # Load data
+    df = pd.read_csv(DATA_CSV)
 
-        safe_gene = re.sub(r'[\\/]', '_', gene)
-        safe_disease = re.sub(r'[\\/]', '_', disease)
+    # --- Add 'All' population ---
+    df_all = df.copy()
+    df_all["SuperPop"] = "All"
+    df = pd.concat([df, df_all], ignore_index=True)
 
-        png_path = (OUTPUT_DIR_PNG / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.png")
-        html_path = (OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.html")
+    # --- Flag pathogenic individuals using thresholds ---
+    df['Is pathogenic'] = (
+        (df['Allele length'] >= df['Pathogenic min']) &
+        (df['Allele length'] <= df['Pathogenic max'])
+    )
 
-        if TEST_MODE:
-            print(f"Previewing: {gene} / {disease}")
-            fig.show()
-            if SAVE_TEST_OUTPUTS:
+    # --- Aggregate setup (to match boxplot script; not strictly required for violin) ---
+    total_count = (
+        df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'])['Sample ID']
+          .nunique()
+          .reset_index(name='total_count')
+    )
+
+    # Compute affected counts per inheritance model
+    ad_affected = count_affected(df, 'AD', 1)
+    ar_affected = count_affected(df, 'AR', 2)
+    xd_affected = count_affected(df, 'XD', 1)
+    xr_affected = count_affected(df, 'XR', 2)
+
+    df_agg = total_count.copy()
+    for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
+        df_agg = df_agg.merge(
+            affected_df,
+            on=['Disease', 'Gene', 'SuperPop'],
+            how='left'
+        )
+
+    for inh in ['ad', 'ar', 'xd', 'xr']:
+        df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
+        df_agg[f'{inh}_percentage'] = df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100
+
+    # --- Generate plots ---
+    printed = 0
+    for gene in df_agg['Gene'].unique():
+        diseases = df_agg[df_agg['Gene'] == gene]['Disease'].unique()
+        for disease in diseases:
+            sub_df = df_agg[(df_agg['Gene'] == gene) & (df_agg['Disease'] == disease)]
+            fig = create_violin_swarm(sub_df.copy(), gene, disease, df)
+            if not fig:
+                continue
+
+            safe_gene = re.sub(r'[\\/]', '_', gene)
+            safe_disease = re.sub(r'[\\/]', '_', disease)
+
+            png_path = (OUTPUT_DIR_PNG / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.png")
+            html_path = (OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.html")
+
+            if TEST_MODE:
+                print(f"Previewing: {gene} / {disease}")
+                fig.show(renderer="browser")
+                if SAVE_TEST_OUTPUTS:
+                    fig.write_html(str(html_path))
+                    fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                printed += 1
+                if printed >= TEST_LIMIT:
+                    break
+            else:
                 fig.write_html(str(html_path))
                 fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-            printed += 1
-            if printed >= TEST_LIMIT:
-                break
-        else:
-            fig.write_html(str(html_path))
-            fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-    if TEST_MODE and printed >= TEST_LIMIT:
-        break
+        if TEST_MODE and printed >= TEST_LIMIT:
+            break
 
-# --- Finished ---
-print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+    # --- Finished ---
+    print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+
+# Guard to prevent execution on import
+if __name__ == "__main__":
+    main()
