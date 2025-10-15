@@ -20,6 +20,7 @@ import os
 import ast
 import numpy as np
 from statsmodels.stats import proportion
+import argparse
 
 pio.renderers.default = "browser"
 
@@ -27,6 +28,17 @@ pio.renderers.default = "browser"
 TEST_MODE = True                # Toggle this flag for quick testing (only one plot generated)
 TEST_LIMIT = 3                   # How many (gene,disease) plots in test mode
 SAVE_TEST_OUTPUTS = False         # Toggle saving plots when in test mode
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Ancestry bar plot generator")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
+    p.set_defaults(test=TEST_MODE)
+    p.add_argument("--test-limit", dest="test_limit", type=int, default=TEST_LIMIT, help="How many plots to generate in test mode")
+    p.add_argument("--save-test-outputs", dest="save_test_outputs", action="store_true", default=SAVE_TEST_OUTPUTS, help="Save outputs even when in test mode")
+    p.add_argument("--output-html", dest="output_html", type=str, default=None, help="Override HTML output directory")
+    p.add_argument("--output-png", dest="output_png", type=str, default=None, help="Override PNG output directory")
+    return p.parse_args()
 
 from trplots.config import SEQ_DATA, OTHER_DATA, OUTPUT_BASE
 from pathlib import Path
