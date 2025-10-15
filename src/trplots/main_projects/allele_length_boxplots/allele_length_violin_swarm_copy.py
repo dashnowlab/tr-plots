@@ -17,6 +17,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.io as pio
 from pathlib import Path
+import argparse
 
 # Pull paths from the shared config
 from trplots.config import (
@@ -197,8 +198,36 @@ def create_violin_swarm(filtered_df, gene, disease, original_df):
 
     return fig
 
+def parse_args():
+    """Parse CLI args to override test mode, limits, data path and outputs."""
+    p = argparse.ArgumentParser(description="Allele length violin+swarm generator")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false",
+                   help="Disable test mode")
+    p.add_argument("--limit", type=int, default=TEST_LIMIT,
+                   help="Set the test limit for number of plots")
+    p.add_argument("--data-csv", type=str, default=str(DATA_CSV),
+                   help="Override the input CSV file")
+    p.add_argument("--output-dir", type=str, default=str(OUTPUT_ROOT),
+                   help="Override the output directory")
+    return p.parse_args()
+
 # --- Main function: move top-level processing here ---
 def main():
+    args = parse_args()
+
+    # --- Test mode overrides ---
+    global TEST_MODE, TEST_LIMIT, OUTPUT_ROOT, OUTPUT_DIR_PNG, OUTPUT_DIR_HTML
+    TEST_MODE = args.test
+    TEST_LIMIT = args.limit
+    OUTPUT_ROOT = Path(args.output_dir)
+    OUTPUT_DIR_PNG = OUTPUT_ROOT
+    OUTPUT_DIR_HTML = OUTPUT_ROOT
+
+    # Data CSV override (pathlib.Path compatible)
+    global DATA_CSV
+    DATA_CSV = Path(args.data_csv)
+
     # Load data
     df = pd.read_csv(DATA_CSV)
 

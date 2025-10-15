@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
+import argparse
 
 # --- TEST MODE / RENDERER ---
 TEST_MODE = True               # set True if you want a quick on-screen preview
@@ -159,9 +160,45 @@ def create_violin_beeswarm(original_df, gene, disease):
 
     return fig
 
-def main():
+def parse_args():
+    """Parse CLI args to override test mode, limits, data and output dirs."""
+    p = argparse.ArgumentParser(description="Allele length violin+swarm generator")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
+    p.set_defaults(test=TEST_MODE)
+    p.add_argument("--test-limit", dest="test_limit", type=int, default=TEST_LIMIT,
+                   help="Max preview plots in test mode")
+    p.add_argument("--save-test-outputs", dest="save_test_outputs", action="store_true",
+                   default=SAVE_TEST_OUTPUTS, help="Save outputs even when running in test mode")
+    p.add_argument("--data-csv", dest="data_csv", type=str, default=str(DATA_PATH),
+                   help="Override input CSV path")
+    p.add_argument("--output-dir", dest="output_dir", type=str, default=None,
+                   help="Override output directory (PNG/HTML subfolders will be created)")
+    return p.parse_args()
+
+def main(args=None):
+    if args is None:
+        args = parse_args()
+
+    # runtime config from args (fall back to module defaults)
+    test_mode = args.test
+    test_limit = args.test_limit
+    save_test_outputs = args.save_test_outputs
+    data_csv_path = Path(args.data_csv)
+
+    # allow overriding output dir via CLI; preserve original structure if not provided
+    if args.output_dir:
+        base_out = Path(args.output_dir)
+        output_dir_png = base_out / "PNG"
+        output_dir_html = base_out / "HTML"
+        output_dir_png.mkdir(parents=True, exist_ok=True)
+        output_dir_html.mkdir(parents=True, exist_ok=True)
+    else:
+        output_dir_png = OUTPUT_DIR_PNG
+        output_dir_html = OUTPUT_DIR_HTML
+
     # --- Load data ---
-    df = pd.read_csv(DATA_PATH)
+    df = pd.read_csv(data_csv_path)
 
     # --- Optional: create an aggregated "All" super-pop row per (Gene,Disease) ---
     if INCLUDE_AGGREGATE_ALL:
@@ -251,20 +288,20 @@ def main():
 
         safe_gene = re.sub(r'[\\/]', '_', gene)
         safe_disease = re.sub(r'[\\/]', '_', disease)
-        png_path = os.path.join(OUTPUT_DIR_PNG, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.png")
-        html_path = os.path.join(OUTPUT_DIR_HTML, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.html")
+        png_path = os.path.join(output_dir_png, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.png")
+        html_path = os.path.join(output_dir_html, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.html")
 
-        if TEST_MODE:
+        if test_mode:
             print(f"Previewing: {gene} / {disease}")
             fig.show()
-            if SAVE_TEST_OUTPUTS:
+            if save_test_outputs:
                 fig.write_html(html_path)
                 try:
                     fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
                 except Exception as e:
                     print(f"[PNG export skipped] {e}")
             printed += 1
-            if printed >= TEST_LIMIT:
+            if printed >= test_limit:
                 break
         else:
             fig.write_html(html_path)
@@ -273,7 +310,8 @@ def main():
             except Exception as e:
                 print(f"[PNG export skipped] {e}")
 
-    print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+    print(f"--- Test mode ON: Test completed (limit={test_limit}) ---" if test_mode else "--- Done ---")
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

@@ -16,6 +16,8 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.io as pio
+import argparse
+from pathlib import Path
 
 # import shared paths/helpers from config
 from trplots.config import (
@@ -37,6 +39,35 @@ OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_b
 TEST_MODE = True               # Toggle this flag for quick testing (preview only)
 TEST_LIMIT = 3                 # How many locus plots to generate in test mode
 SAVE_TEST_OUTPUTS = False       # Toggle saving plots when in test mode (PNG/HTML)
+
+def parse_args():
+    """Parse command line arguments to override defaults."""
+    p = argparse.ArgumentParser(description="Allele length boxplot generator")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
+    p.set_defaults(test=TEST_MODE)
+    p.add_argument("--test-limit", type=int, default=TEST_LIMIT, help="Number of plots to generate in test mode")
+    p.add_argument("--save-test-outputs", action="store_true", default=SAVE_TEST_OUTPUTS,
+                   help="Save outputs even when running in test mode")
+    p.add_argument("--data-path", type=str, default=str(DATA_PATH),
+                   help="Override the input data path (Excel)")
+    p.add_argument("--output-dir", type=str, default=None,
+                   help="Optional: override the output directory (single folder used for PNG/HTML)")
+    return p.parse_args()
+
+# --- Output directory (overrideable) ---
+OUTPUT_DIR_PNG  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "png")
+OUTPUT_DIR_HTML = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "html")
+
+args = parse_args()
+if args.output_dir:
+    OUTPUT_DIR_PNG = ENSURE_DIR(args.output_dir)
+    OUTPUT_DIR_HTML = ENSURE_DIR(args.output_dir)
+
+# --- TEST MODE ---
+TEST_MODE = args.test
+TEST_LIMIT = args.test_limit
+SAVE_TEST_OUTPUTS = args.save_test_outputs
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
@@ -320,9 +351,25 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
     return fig
 
 # --- Main entrypoint (make script import-safe) ---
-def main():
+def main(args=None):
+    # Parse args if not provided
+    if args is None:
+        args = parse_args()
+
+    # Respect CLI overrides
+    test_mode = args.test
+    test_limit = args.test_limit
+    save_test_outputs = args.save_test_outputs
+    data_path = Path(args.data_path) if args.data_path else DATA_PATH
+    if args.output_dir:
+        outdir = Path(args.output_dir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        global OUTPUT_DIR_PNG, OUTPUT_DIR_HTML
+        OUTPUT_DIR_PNG = outdir
+        OUTPUT_DIR_HTML = outdir
+
     # Load data
-    df = pd.read_excel(DATA_PATH, sheet_name=SHEET_NAME)
+    df = pd.read_excel(data_path, sheet_name=SHEET_NAME)
 
     # Ensure numeric columns are numeric
     if 'Allele length' in df.columns:
@@ -368,10 +415,10 @@ def main():
         png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.png"
         html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.html"
 
-        if TEST_MODE:
+        if test_mode:
             print(f"Previewing: {gene} / {disease} / {locus}")
             fig.show()
-            if SAVE_TEST_OUTPUTS:
+            if save_test_outputs:
                 try:
                     fig.write_html(str(html_path))
                 except Exception as e:
@@ -381,7 +428,7 @@ def main():
                 except Exception as e:
                     print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
             printed += 1
-            if printed >= TEST_LIMIT:
+            if printed >= test_limit:
                 break
         else:
             try:
@@ -393,10 +440,11 @@ def main():
             except Exception as e:
                 print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
 
-    if TEST_MODE:
-        print("--- Test mode ON: Test completed ---")
+    if test_mode:
+        print(f"--- Test mode ON: Test completed (limit={test_limit}) ---")
     else:
         print("--- Done ---")
-
+ 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

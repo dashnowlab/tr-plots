@@ -16,6 +16,8 @@ import ast
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
+import argparse
+from pathlib import Path
 
 from trplots.config import (
     OTHER_DATA,                 # data/other_data
@@ -196,9 +198,40 @@ def create_boxplot(filtered_df, gene, disease, original_df):
     fig.update_layout(annotations=annos)
     return fig
 
-def main():
+def parse_args():
+    """Parse CLI args to override test mode, limits and saving behavior."""
+    p = argparse.ArgumentParser(description="Allele length boxplot generator")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
+    p.set_defaults(test=TEST_MODE)
+    p.add_argument("--test-limit", type=int, default=TEST_LIMIT, help="Max number of preview plots in test mode")
+    p.add_argument("--save-test-outputs", dest="save_test_outputs", action="store_true",
+                   help="Save outputs even when running in test mode")
+    p.add_argument("--data-path", type=str, default=str(DATA_PATH), help="Override input CSV path")
+    p.add_argument("--output-png", type=str, default=None, help="Override output PNG directory")
+    p.add_argument("--output-html", type=str, default=None, help="Override output HTML directory")
+    return p.parse_args()
+
+def main(args=None):
+    if args is None:
+        args = parse_args()
+
+    # respect CLI overrides
+    test_mode = args.test
+    test_limit = args.test_limit
+    save_test_outputs = args.save_test_outputs
+    data_path = Path(args.data_path)
+    if args.output_png:
+        global OUTPUT_DIR_PNG
+        OUTPUT_DIR_PNG = Path(args.output_png)
+        OUTPUT_DIR_PNG.mkdir(parents=True, exist_ok=True)
+    if args.output_html:
+        global OUTPUT_DIR_HTML
+        OUTPUT_DIR_HTML = Path(args.output_html)
+        OUTPUT_DIR_HTML.mkdir(parents=True, exist_ok=True)
+
     # Load data
-    df = pd.read_csv(DATA_PATH)
+    df = pd.read_csv(data_path)
 
     # --- Add 'All' population ---
     df_all = df.copy()
@@ -259,17 +292,17 @@ def main():
             png_path  = OUTPUT_DIR_PNG  / f"{safe_gene}_{safe_disease}_allele_length_boxplot.png"
             html_path = OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_boxplot.html"
 
-            if TEST_MODE:
+            if test_mode:
                 print(f"Previewing: {gene} / {disease}")
                 fig.show(renderer="browser")
-                if SAVE_TEST_OUTPUTS:
+                if save_test_outputs:
                     fig.write_html(str(html_path))
                     try:
                         fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
                     except Exception as e:
                         print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
                 printed += 1
-                if printed >= TEST_LIMIT:
+                if printed >= test_limit:
                     break
             else:
                 fig.write_html(str(html_path))
@@ -277,10 +310,10 @@ def main():
                     fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
                 except Exception as e:
                     print(f"Failed to write PNG {png_path}: {e} — ensure 'kaleido' is installed")
-        if TEST_MODE and printed >= TEST_LIMIT:
+        if test_mode and printed >= test_limit:
             break
 
-    print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
+    print(f"--- Test mode ON: Test completed (limit={test_limit}) ---" if test_mode else "--- Done ---")
 
 if __name__ == "__main__":
     main()
