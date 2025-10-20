@@ -8,49 +8,69 @@
 
 import gzip
 import re
+import argparse
 from collections import defaultdict
 from pathlib import Path
 
-from readchar import config
-
 # import shared paths/helpers from config
-from trplots.config import (
-    SEQ_DATA,                
-    ENSURE_DIR
-)
+from trplots.config import SEQ_DATA, ENSURE_DIR
 
-vcf_path = SEQ_DATA / "83_loci_503_samples" / "1000g-ont-strchive-83_loci_503_samples.vcf.gz"
+def parse_args():
+    p = argparse.ArgumentParser(description="Extract longest motif lengths from a VCF")
+    p.add_argument("--vcf", type=str, default=str(SEQ_DATA / "83_loci_503_samples" / "1000g-ont-strchive-83_loci_503_samples.vcf.gz"),
+                   help="Path to input VCF (gzipped)")
+    p.add_argument("--out", type=str, default=None, help="Output CSV path (default: next to VCF)")
+    return p.parse_args()
 
-longest_motifs = defaultdict(lambda: {"motif": "", "length": 0})
+def extract_longest_motifs(vcf_path: Path):
+    longest_motifs = defaultdict(lambda: {"motif": "", "length": 0})
 
-with gzip.open(vcf_path, "rt") as f:
-    for line in f:
-        if line.startswith("#"):
-            continue
+    with gzip.open(vcf_path, "rt") as f:
+        for line in f:
+            if line.startswith("#"):
+                continue
 
-        parts = line.strip().split("\t")
-        chrom = parts[0]
-        pos = parts[1]
-        info_field = parts[7]
+            parts = line.strip().split("\t")
+            if len(parts) < 8:
+                continue
 
-        info_dict = dict(item.split("=", 1) for item in info_field.split(";") if "=" in item)
-        
-        # Prefer 'MOTIF' if present; fallback to 'RU'
-        motif = info_dict.get("MOTIF") or info_dict.get("RU")
-        gene = info_dict.get("GENE") or f"{chrom}:{pos}"
+            chrom = parts[0]
+            pos = parts[1]
+            info_field = parts[7]
 
-        if motif:
-            motif_len = len(motif)
-            if motif_len > longest_motifs[gene]["length"]:
-                longest_motifs[gene] = {"motif": motif, "length": motif_len}
+            info_dict = dict(item.split("=", 1) for item in info_field.split(";") if "=" in item)
 
-# Display results
-# for gene, data in longest_motifs.items():
-#     print(f"{gene}\tMotif: {data['motif']}\tLength: {data['length']}")
+            # Prefer 'MOTIF' if present; fallback to 'RU'
+            motif = info_dict.get("MOTIF") or info_dict.get("RU")
+            gene = info_dict.get("GENE") or f"{chrom}:{pos}"
 
-# Save to CSV
-out_file = config.RESULT_PATH("longest_motifs.csv")
-with out_file.open("w") as out:
-    out.write("Gene_or_Locus,Motif,Length\n")
-    for gene, data in longest_motifs.items():
-        out.write(f"{gene},{data['motif']},{data['length']}\n")
+            if motif:
+                motif_len = len(motif)
+                if motif_len > longest_motifs[gene]["length"]:
+                    longest_motifs[gene] = {"motif": motif, "length": motif_len}
+
+    return longest_motifs
+
+def main(args=None):
+    if args is None:
+        args = parse_args()
+
+    vcf_path = Path(args.vcf)
+    if not vcf_path.exists():
+        print(f"ERROR: VCF not found: {vcf_path}")
+        return
+
+    out_path = Path(args.out) if args.out else (vcf_path.parent / "longest_motifs.csv")
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+
+    longest_motifs = extract_longest_motifs(vcf_path)
+
+    with out_path.open("w", encoding="utf-8") as out:
+        out.write("Gene_or_Locus,Motif,Length\n")
+        for gene, data in sorted(longest_motifs.items()):
+            out.write(f"{gene},{data['motif']},{data['length']}\n")
+
+    print(f"Saved {len(longest_motifs)} motifs to {out_path}")
+
+if __name__ == "__main__":
+    main()
