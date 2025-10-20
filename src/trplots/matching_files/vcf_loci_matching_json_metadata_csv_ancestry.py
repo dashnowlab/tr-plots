@@ -16,6 +16,7 @@ import json
 import os
 import pysam
 import pandas as pd
+import argparse
 from pathlib import Path
 
 # --- TEST MODE ---
@@ -69,7 +70,24 @@ with open(JSON_PATH, "r") as f:
     loci_data = json.load(f)
 
 # --- Read VCF header + iterate records ---
-def main():
+def parse_args():
+    p = argparse.ArgumentParser(description="Process VCF and produce allele/ancestry CSV")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
+    p.set_defaults(test=TEST_MODE)
+    p.add_argument("--test-limit", dest="test_limit", type=int, default=TEST_LIMIT)
+    p.add_argument("--save-test-outputs", dest="save_test_outputs", action="store_true", default=SAVE_TEST_OUTPUTS)
+    return p.parse_args()
+
+
+def main(args=None):
+    if args is None:
+        args = parse_args()
+    global TEST_MODE, TEST_LIMIT, SAVE_TEST_OUTPUTS
+    TEST_MODE = bool(args.test)
+    TEST_LIMIT = int(args.test_limit)
+    SAVE_TEST_OUTPUTS = bool(args.save_test_outputs)
+
     vcf_in = pysam.VariantFile(VCF_PATH)
     vcf_sample_ids = list(vcf_in.header.samples)                  # e.g., ["HG00096-1", ...]
     base_sample_ids = [sid.split('-')[0] for sid in vcf_sample_ids]  # normalized IDs
@@ -224,4 +242,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

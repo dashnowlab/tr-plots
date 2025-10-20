@@ -19,6 +19,8 @@ import json
 import numpy as np
 import pandas as pd
 from pathlib import Path
+import argparse
+
 
 # --- TEST MODE ---
 TEST_MODE = True
@@ -46,6 +48,17 @@ if TEST_MODE:
 
 OUTPUT_CSV = OUTPUT_DIR_CSV / "83_loci_503_samples_withancestrycolumns_updated.csv"
 OUTPUT_EXCEL = OUTPUT_DIR_XLSX / "83_loci_503_samples_withancestrycolumns_updated.xlsx"
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Match debug CSV to ancestry and JSON metadata")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
+    p.set_defaults(test=TEST_MODE)
+    p.add_argument("--test-limit", dest="test_limit", type=int, default=TEST_LIMIT)
+    p.add_argument("--save-test-outputs", dest="save_test_outputs", action="store_true", default=SAVE_TEST_OUTPUTS)
+    return p.parse_args()
+
 
 # --- Add ancestry population columns ---
 def add_population_info(csv_df, tsv_df):
@@ -131,7 +144,14 @@ def fill_column(df, col, default=''):
     return df
 
 # --- Main execution moved into function ---
-def main():
+def main(args=None):
+    if args is None:
+        args = parse_args()
+    global TEST_MODE, TEST_LIMIT, SAVE_TEST_OUTPUTS
+    TEST_MODE = bool(args.test)
+    TEST_LIMIT = int(args.test_limit)
+    SAVE_TEST_OUTPUTS = bool(args.save_test_outputs)
+
     # Load inputs
     csv_data = pd.read_csv(CSV_PATH, sep=",", header=0)
     with open(JSON_PATH, "r") as file:
@@ -209,4 +229,5 @@ def main():
     print("--- Done ---")
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)

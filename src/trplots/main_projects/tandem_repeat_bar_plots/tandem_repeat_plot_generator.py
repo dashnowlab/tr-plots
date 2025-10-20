@@ -22,6 +22,8 @@ import pysam
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
+import argparse
+
 
 # force Plotly to open figures in the system browser
 pio.renderers.default = "browser"
@@ -126,7 +128,23 @@ def add_range_marker_or_line(fig, x0, x1, label_id, label_positions,
             xanchor=xanchor
         )
 
-def main():
+def parse_args():
+    p = argparse.ArgumentParser(description="Tandem repeat plot generator")
+    p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
+    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
+    p.set_defaults(test=TEST_MODE)
+    p.add_argument("--test-limit", dest="test_limit", type=int, default=TEST_LIMIT)
+    p.add_argument("--save-test-outputs", dest="save_test_outputs", action="store_true", default=SAVE_TEST_OUTPUTS)
+    return p.parse_args()
+
+def main(args=None):
+    if args is None:
+        args = parse_args()
+    global TEST_MODE, TEST_LIMIT, SAVE_TEST_OUTPUTS
+    TEST_MODE = bool(args.test)
+    TEST_LIMIT = int(args.test_limit)
+    SAVE_TEST_OUTPUTS = bool(args.save_test_outputs)
+
     # --- Read the VCF file ---
     vcf_in = pysam.VariantFile(VCF_PATH)
 
@@ -309,4 +327,5 @@ def main():
         print(f"--- Done: processed {total_vcf_loci}, matched {matched_vcf_loci} ---")
 
 if __name__ == "__main__":
-    main()
+    args = parse_args()
+    main(args)
