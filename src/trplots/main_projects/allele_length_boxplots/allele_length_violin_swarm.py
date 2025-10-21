@@ -1,317 +1,308 @@
-import os
 import re
 import ast
-import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.io as pio
+from pathlib import Path
 import argparse
 
-# --- TEST MODE / RENDERER ---
-TEST_MODE = True               # set True if you want a quick on-screen preview
-TEST_LIMIT = 3
-SAVE_TEST_OUTPUTS = False
-pio.renderers.default = "browser"  # ensures fig.show() opens from terminal
+# Pull paths from the shared config
+# NOTE: Removed MASTER_ALLELE_SPREADSHEET.
+from trplots.config import (
+    OTHER_DATA, # <--- Used to construct the input path
+    ENSURE_DIR,
+    ALLELE_LENGTH_PLOTS_OUTPUT,
+)
 
-# --- VISUAL OPTIONS ---
-POINT_SIZE = 6
-POINT_OPACITY = 0.75
-VIOLIN_SHOW_BOX = True
-JITTER = 0.35
-INCLUDE_AGGREGATE_ALL = True   # <-- add an "All" super-pop row per (Gene,Disease)
+# make Plotly open figures in the browser by default
+pio.renderers.default = "browser"
 
-# --- POPULATION PALETTE (1kG-style) ---
-POP_COLOR = {
-    'EUR': '#1f77b4',  # blue
-    'EAS': '#2ca02c',  # green
-    'SAS': '#9467bd',  # purple
-    'AMR': '#d62728',  # red
-    'AFR': '#ff7f0e',  # orange/yellow
-    'All': '#7f7f7f',  # gray for aggregates
-}
-# Put "All" at the top, then a readable order
-SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
-
-from trplots.config import OTHER_DATA, OUTPUT_BASE
-from pathlib import Path
-
-# --- File locations ---
-DATA_PATH = OTHER_DATA / "83_loci_503_samples_withancestrycolumns.csv"
-OUTPUT_DIR = Path(OUTPUT_BASE) / "plots" / "allele_length_violin_swarm"
-OUTPUT_DIR_PNG = OUTPUT_DIR / "PNG"
-OUTPUT_DIR_HTML = OUTPUT_DIR / "HTML"
-os.makedirs(OUTPUT_DIR_PNG, exist_ok=True)
-os.makedirs(OUTPUT_DIR_HTML, exist_ok=True)
-
-if TEST_MODE:
-    OUTPUT_DIR = os.path.join(OUTPUT_DIR, "test_outputs")
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    OUTPUT_DIR_PNG = OUTPUT_DIR
-    OUTPUT_DIR_HTML = OUTPUT_DIR
+# --- TEST MODE ---
+TEST_MODE = True              # Toggle this flag for quick testing (preview only)
+TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
+SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
 FIG_HEIGHT = 500
-TOP_MARGIN = 125
+TOP_MARGIN = 130               # fixed header space (annotations), keeps plot area aligned
 PNG_SCALE = 2
 
-# --- Plotting helper ---
-def create_violin_beeswarm(original_df, gene, disease):
-    subset = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)].copy()
-    if subset.empty:
+# --- File locations (via config) ---
+# UPDATED: Revert to previous file name, assuming it's in the OTHER_DATA directory.
+if OTHER_DATA is None:
+    raise FileNotFoundError("The 'OTHER_DATA' path is missing in trplots.config. Cannot locate input CSV.")
+DATA_CSV = OTHER_DATA / "83_loci_503_samples_withancestrycolumns.csv"
+
+
+# Default output roots under results/plots/allele_length_boxplots/violin_swarm/...
+OUTPUT_ROOT = ALLELE_LENGTH_PLOTS_OUTPUT / "violin_swarm"
+# ENSURE_DIR is correctly imported and used below.
+OUTPUT_DIR_PNG  = ALLELE_LENGTH_PLOTS_OUTPUT / "violin_swarm" / "png"
+OUTPUT_DIR_HTML = ALLELE_LENGTH_PLOTS_OUTPUT / "violin_swarm" / "html"
+
+
+# --- POPULATION PALETTE (1kG-style) ---
+POP_COLOR = {
+    'EUR': '#1f77b4',   # blue
+    'EAS': '#2ca02c',   # green
+    'SAS': '#9467bd',   # purple
+    'AMR': '#d62728',   # red
+    'AFR': '#ff7f0e',   # orange/yellow
+    'All': '#7f7f7f',   # gray for aggregates
+    'Unknown': '#ff99cc',  # fallback for unknowns (optional)
+}
+SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
+
+# --- Helper functions (Performance optimizations retained) ---
+
+def _wrap_to_lines(s: str, max_len: int = 110):
+    parts = [p.strip() for p in s.split(",")]
+    lines, line = [], ""
+    for seg in parts:
+        seg = seg.strip()
+        if not seg:
+            continue
+        add = (", " if line else "") + seg
+        if len(line) + len(seg) + (2 if line else 0) > max_len:
+            if line:
+                lines.append(line)
+            line = seg
+        else:
+            line += add if line else seg
+    if line:
+        lines.append(line)
+    return lines
+
+def create_violin_swarm(locus_df, locus_key_data):
+    """
+    Build a horizontal violin plot with overlaid points ("swarm")
+    using pre-calculated data.
+    """
+    gene, disease = locus_key_data['key']
+    counts = locus_key_data['counts']
+    inheritance = locus_key_data['inheritance']
+    
+    if locus_df.empty:
         return None
 
-    # Inheritance parsing (optional; only used in title)
-    raw_inh = subset['Inheritance']
-    try:
-        inh_list = ast.literal_eval(raw_inh.iloc[0]) if not raw_inh.empty else []
-        inheritance = inh_list[0] if inh_list else ''
-    except Exception:
-        inheritance = str(raw_inh.iloc[0]) if not raw_inh.empty else ''
-    if not inheritance:
-        inheritance = "Unknown"
-    if inheritance not in ['AD', 'AR', 'XD', 'XR', 'Unknown']:
-        inheritance = "Unknown"
+    # Get ordered categories from pre-calculated counts
+    ordered_categories = counts.index.tolist()
+    
+    # Prepare dataframe for plotting
+    fdf = locus_df.copy()
+    # Ensure SuperPop is a categorical type for correct ordering in Plotly
+    fdf['SuperPop'] = pd.Categorical(fdf['SuperPop'], categories=ordered_categories, ordered=True)
 
-    # Totals per population (for subtitle)
-    relevant = original_df[(original_df['Gene'] == gene) & (original_df['Disease'] == disease)]
-    unique_pops = (
-        relevant.groupby('SuperPop', observed=False)['Sample ID']
-                .nunique()
-                .reset_index(name='pop_total')
-                .sort_values(by='SuperPop')
-    )
-    pop_desc = ', '.join(f"{row['SuperPop']}: {row['pop_total']}" for _, row in unique_pops.iterrows())
+    # Prepare population description from pre-calculated counts
+    pop_desc = ', '.join(f"{pop}: {counts.loc[pop]}" for pop in ordered_categories if pop in counts.index)
+    pop_lines = _wrap_to_lines(pop_desc, max_len=110)
 
-    # Wrap subtitle nicely
-    max_line_len = 107
-    pop_lines, line = [], ""
-    for segment in pop_desc.split(", "):
-        if len(line) + len(segment) > max_line_len:
-            pop_lines.append(line.strip(", "))
-            line = ""
-        line += segment + ", "
-    if line:
-        pop_lines.append(line.strip(", "))
-    pop_size_html = "<br>".join([
-        f"<span style='font-size:12px'>Total Individuals per Population: {ln}</span>" if i == 0
-        else f"<span style='font-size:12px'>{ln}</span>"
-        for i, ln in enumerate(pop_lines)
-    ])
-
-    disease_html = f"<span style='font-size:12px'>{gene} - {disease}</span>"
-    title_html = (
-        f"<span style='font-size:18px; font-weight:bold'>Allele Lengths per Population</span><br>"
-        f"{disease_html}<br>{pop_size_html}<br>"
-        f"<span style='font-size:12px'>Inheritance: {inheritance}</span>"
-    )
-
-    # Violin colored by SuperPop (uses our palette)
+    # ---- Build the violin + swarm (no built-in title) ----
     fig = px.violin(
-        subset,
+        fdf,
         x='Allele length',
         y='SuperPop',
-        orientation='h',
-        box=VIOLIN_SHOW_BOX,
-        points=False,
         color='SuperPop',
-        category_orders={'SuperPop': [c for c in SUPERPOP_ORDER if c in subset['SuperPop'].cat.categories]},
+        category_orders={"SuperPop": ordered_categories},
         color_discrete_map=POP_COLOR,
-        title=title_html,
+        box=False,
+        points='all',
+        title=None,
+        orientation='h',
     )
 
-    # Beeswarm points, also colored by SuperPop
-    strip_fig = px.strip(
-        subset,
-        x='Allele length',
-        y='SuperPop',
-        orientation='h',
-        color='SuperPop',
-        category_orders={'SuperPop': [c for c in SUPERPOP_ORDER if c in subset['SuperPop'].cat.categories]},
-        color_discrete_map=POP_COLOR,
-        hover_data=['Sample ID', 'Allele length', 'SuperPop', 'Gene', 'Disease']
+    # Make the point cloud look denser (swarm-ish)
+    fig.update_traces(
+        jitter=0.35,
+        marker=dict(size=4, line=dict(width=0)),
+        meanline_visible=True
     )
 
-    # Manual jitter to avoid vertical stacking
-    for tr in strip_fig.data:
-        x_vals = np.array(tr.x, dtype=float)
-        if JITTER and JITTER > 0:
-            noise = np.random.uniform(-JITTER, JITTER, size=x_vals.shape)
-            x_vals = x_vals + noise
-        tr.x = x_vals
-        tr.update(
-            marker=dict(size=POINT_SIZE, opacity=POINT_OPACITY, line=dict(width=0)),
-            showlegend=False
-        )
-        fig.add_trace(tr)
-
+    # Consistent sizing & style
     fig.update_layout(
         width=FIG_WIDTH,
         height=FIG_HEIGHT,
-        margin=dict(t=TOP_MARGIN),
+        margin=dict(t=TOP_MARGIN, r=40, b=60, l=80),
         autosize=False,
-        xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black', zeroline=False),
-        yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
         plot_bgcolor='white',
+        showlegend=False,
         font=dict(color='black'),
-        title=dict(y=0.95),
-        showlegend=False
+        xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black'),
+        yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
     )
+
+    # ---- Fixed-position header via annotations ----
+    main_title = "<b>Allele Lengths per Population</b>"
+    subtitle_lines = [f"{gene} - {disease}"] + \
+                     ([f"Total Individuals per Population: {pop_lines[0]}"] if pop_lines else []) + \
+                     (pop_lines[1:] if len(pop_lines) > 1 else []) + \
+                     [f"Inheritance: {inheritance}"]
+
+    annos = [
+        dict(
+            text=main_title, x=0, xref="paper", xanchor="left",
+            y=1.4, yref="paper", yanchor="top",
+            showarrow=False, align="left", font=dict(size=18)
+        )
+    ]
+    y0 = 1.32
+    for i, line in enumerate(subtitle_lines):
+        annos.append(
+            dict(
+                text=f"<span style='font-size:12px'>{line}</span>",
+                x=0, xref="paper", xanchor="left",
+                y=y0 - 0.04*i, yref="paper", yanchor="top",
+                showarrow=False, align="left"
+            )
+        )
+    fig.update_layout(annotations=annos)
 
     return fig
 
 def parse_args():
-    """Parse CLI args to override test mode, limits, data and output dirs."""
+    """Parse CLI args to override test mode, limits, data path and outputs."""
     p = argparse.ArgumentParser(description="Allele length violin+swarm generator")
     p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
-    p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
-    p.set_defaults(test=TEST_MODE)
-    p.add_argument("--test-limit", dest="test_limit", type=int, default=TEST_LIMIT,
-                   help="Max preview plots in test mode")
-    p.add_argument("--save-test-outputs", dest="save_test_outputs", action="store_true",
-                   default=SAVE_TEST_OUTPUTS, help="Save outputs even when running in test mode")
-    p.add_argument("--data-csv", dest="data_csv", type=str, default=str(DATA_PATH),
-                   help="Override input CSV path")
-    p.add_argument("--output-dir", dest="output_dir", type=str, default=None,
-                   help="Override output directory (PNG/HTML subfolders will be created)")
+    p.add_argument("--no-test", dest="test", action="store_false",
+                   help="Disable test mode", default=not TEST_MODE) 
+    p.add_argument("--limit", type=int, default=TEST_LIMIT,
+                   help="Set the test limit for number of plots")
+    p.add_argument("--data-csv", type=str, default=str(DATA_CSV),
+                   help="Override the input CSV file")
+    p.add_argument("--output-dir", type=str, default=str(OUTPUT_ROOT),
+                   help="Override the output directory")
+    p.set_defaults(test=TEST_MODE) 
     return p.parse_args()
 
-def main(args=None):
-    if args is None:
-        args = parse_args()
+# --- Main function: move top-level processing here ---
+def main():
+    args = parse_args()
 
-    # runtime config from args (fall back to module defaults)
-    test_mode = args.test
-    test_limit = args.test_limit
-    save_test_outputs = args.save_test_outputs
-    data_csv_path = Path(args.data_csv)
-
-    # allow overriding output dir via CLI; preserve original structure if not provided
-    if args.output_dir:
-        base_out = Path(args.output_dir)
-        output_dir_png = base_out / "PNG"
-        output_dir_html = base_out / "HTML"
-        output_dir_png.mkdir(parents=True, exist_ok=True)
-        output_dir_html.mkdir(parents=True, exist_ok=True)
+    # --- Test mode overrides ---
+    global TEST_MODE, TEST_LIMIT, OUTPUT_ROOT, OUTPUT_DIR_PNG, OUTPUT_DIR_HTML
+    TEST_MODE = args.test
+    TEST_LIMIT = args.limit
+    
+    # Update paths using ENSURE_DIR from the config
+    OUTPUT_ROOT = Path(args.output_dir)
+    
+    # We must ensure the actual output directories exist using the config's helper
+    if not TEST_MODE:
+        # Use ENSURE_DIR to guarantee these paths exist if not in test mode
+        base_parts = list(ALLELE_LENGTH_PLOTS_OUTPUT.parts[len(ALLELE_LENGTH_PLOTS_OUTPUT.parents[1].parts):])
+        OUTPUT_DIR_PNG = ENSURE_DIR(*(base_parts + ["violin_swarm", "png"]))
+        OUTPUT_DIR_HTML = ENSURE_DIR(*(base_parts + ["violin_swarm", "html"]))
     else:
-        output_dir_png = OUTPUT_DIR_PNG
-        output_dir_html = OUTPUT_DIR_HTML
+        # If test mode is set, use the "test_outputs" folder and ensure it exists
+        OUTPUT_ROOT = ENSURE_DIR("plots", "allele_length_boxplots", "violin_swarm", "test_outputs")
+        OUTPUT_DIR_PNG = OUTPUT_ROOT
+        OUTPUT_DIR_HTML = OUTPUT_ROOT
 
-    # --- Load data ---
-    df = pd.read_csv(data_csv_path)
 
-    # --- Optional: create an aggregated "All" super-pop row per (Gene,Disease) ---
-    if INCLUDE_AGGREGATE_ALL:
-        # Keep columns needed in plots/labels; duplicate rows with SuperPop='All'
-        agg = df.copy()
-        agg['SuperPop'] = 'All'
-        df = pd.concat([df, agg], ignore_index=True)
+    # Data CSV override (pathlib.Path compatible)
+    global DATA_CSV
+    DATA_CSV = Path(args.data_csv)
 
-    # --- Ensure SuperPop has a stable categorical order ---
-    if 'SuperPop' in df.columns:
-        uniques = df['SuperPop'].astype(str).unique().tolist()
-        cats = [c for c in SUPERPOP_ORDER if c in uniques]
-        extras = [c for c in uniques if c not in cats]
-        df['SuperPop'] = pd.Categorical(df['SuperPop'], categories=cats + extras, ordered=True)
+    # Load data
+    print(f"Loading data from: {DATA_CSV}")
+    df = pd.read_csv(DATA_CSV)
 
-    # --- Aggregate setup (kept for compatibility) ---
-    total_count = (
-        df.groupby(['Disease', 'Gene', 'SuperPop', 'Allele length'], observed=False)['Sample ID']
-          .nunique()
-          .reset_index(name='total_count')
+    # --- Add 'All' population (Vectorized) ---
+    df_all = df.assign(SuperPop="All")
+    df = pd.concat([df, df_all], ignore_index=True)
+    
+    # Assign 'SuperPop' as a categorical type for consistent ordering/grouping
+    df['SuperPop'] = pd.Categorical(df['SuperPop'], categories=SUPERPOP_ORDER, ordered=True)
+
+    # --- Flag pathogenic individuals using thresholds (Vectorized) ---
+    df['Is pathogenic'] = (
+        (df['Allele length'] >= df['Pathogenic min']) &
+        (df['Allele length'] <= df['Pathogenic max'])
     )
 
-    def count_affected_local(df_in, inh_mode, min_alleles):
-        # Pathogenic bands may be absent for some rows; guard with non-null mask
-        m = (
-            df_in['Inheritance'].astype(str).eq(f"['{inh_mode}']")
-            & df_in['Pathogenic min'].notna()
-            & df_in['Pathogenic max'].notna()
-        )
-        df_inh = df_in[m].copy()
-        if df_inh.empty:
-            return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
+    # --- Pre-calculate all data outside the plot loop (Performance optimization) ---
 
-        df_path = df_inh[
-            (df_inh['Allele length'] >= df_inh['Pathogenic min'])
-            & (df_inh['Allele length'] <= df_inh['Pathogenic max'])
-        ].copy()
+    # 1. Total unique individuals per Locus/SuperPop (Required for header)
+    locus_pop_counts = (
+        df.groupby(['Gene', 'Disease', 'SuperPop'], observed=True)['Sample ID']
+          .nunique()
+          .rename('total_individuals')
+    )
+    
+    # 2. Inheritance Mode (Required for header)
+    inheritance_map = {}
+    for (gene, disease), group in df.groupby(['Gene', 'Disease']):
+        # Find the first non-null 'Inheritance' value
+        raw_inh = group['Inheritance'].dropna().iloc[0] if not group['Inheritance'].dropna().empty else ''
+        try:
+            # Safely evaluate string to list and get the first element
+            inh_list = ast.literal_eval(raw_inh) if isinstance(raw_inh, str) and raw_inh.startswith('[') else [raw_inh]
+            inheritance = str(inh_list[0]) if inh_list and str(inh_list[0]) else ''
+        except Exception:
+            inheritance = str(raw_inh) if raw_inh else ''
+            
+        inheritance = inheritance if inheritance in ['AD', 'AR', 'XD', 'XR'] else 'Unknown'
+        inheritance_map[(gene, disease)] = inheritance
 
-        if df_path.empty:
-            return pd.DataFrame(columns=['Disease','Gene','SuperPop',f'{inh_mode.lower()}_affected_counts'])
+    # 3. Locus-specific dataframes (for plotting)
+    locus_data_map = {}
+    for (gene, disease), group in df.groupby(['Gene', 'Disease']):
+        # Filter for the plotting columns
+        plot_df = group[['Allele length', 'SuperPop']].copy()
+        
+        # Get the individual counts for the current locus
+        counts = locus_pop_counts.loc[(gene, disease)]
+        
+        # Drop 'Unknown' and reindex to get the sorted list of present SuperPops
+        present_pops = counts.drop('Unknown', errors='ignore').index.tolist()
+        ordered_categories = [c for c in SUPERPOP_ORDER if c in present_pops]
+        
+        # Re-order counts based on SUPERPOP_ORDER for the final output
+        counts_reordered = counts.reindex(ordered_categories).dropna().astype(int)
 
-        grouped = (
-            df_path.groupby(['Disease', 'Gene', 'SuperPop', 'Sample ID'], observed=False)
-                   .size()
-                   .reset_index(name='path_count')
-        )
-        affected = grouped[grouped['path_count'] >= min_alleles]
-        return (
-            affected.groupby(['Disease', 'Gene', 'SuperPop'], observed=False)['Sample ID']
-                    .nunique()
-                    .reset_index(name=f'{inh_mode.lower()}_affected_counts')
-        )
+        locus_data_map[(gene, disease)] = {
+            'df': plot_df,
+            'counts': counts_reordered,
+            'inheritance': inheritance_map[(gene, disease)],
+            'key': (gene, disease)
+        }
 
-    # Compute affected counts (safe even if empty)
-    ad_affected = count_affected_local(df, 'AD', 1)
-    ar_affected = count_affected_local(df, 'AR', 2)
-    xd_affected = count_affected_local(df, 'XD', 1)
-    xr_affected = count_affected_local(df, 'XR', 2)
-
-    # Merge into summary and compute percentages
-    df_agg = total_count.copy()
-    for affected_df in [ad_affected, ar_affected, xd_affected, xr_affected]:
-        if not affected_df.empty:
-            df_agg = df_agg.merge(
-                affected_df,
-                on=['Disease', 'Gene', 'SuperPop'],
-                how='left'
-            )
-
-    for inh in ['ad', 'ar', 'xd', 'xr']:
-        if f'{inh}_affected_counts' not in df_agg.columns:
-            df_agg[f'{inh}_affected_counts'] = 0
-        df_agg[f'{inh}_affected_counts'] = df_agg[f'{inh}_affected_counts'].fillna(0).astype(int)
-        df_agg[f'{inh}_percentage'] = np.where(
-            df_agg['total_count'] > 0,
-            df_agg[f'{inh}_affected_counts'] / df_agg['total_count'] * 100,
-            np.nan
-        )
-
-    # --- Generate plots ---
+    # --- Generate plots using the pre-calculated map ---
     printed = 0
-    pairs = df[['Gene', 'Disease']].drop_duplicates().itertuples(index=False, name=None)
-    for gene, disease in pairs:
-        fig = create_violin_beeswarm(df, gene, disease)
-        if fig is None:
+    locus_keys = list(locus_data_map.keys())
+    
+    for gene, disease in locus_keys:
+        locus_key = (gene, disease)
+        locus_data = locus_data_map[locus_key]
+
+        fig = create_violin_swarm(locus_data['df'], locus_data)
+        if not fig:
             continue
 
         safe_gene = re.sub(r'[\\/]', '_', gene)
         safe_disease = re.sub(r'[\\/]', '_', disease)
-        png_path = os.path.join(output_dir_png, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.png")
-        html_path = os.path.join(output_dir_html, f"{safe_gene}_{safe_disease}_allele_length_violin_beeswarm.html")
 
-        if test_mode:
+        png_path = (OUTPUT_DIR_PNG / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.png")
+        html_path = (OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.html")
+
+        if TEST_MODE:
             print(f"Previewing: {gene} / {disease}")
-            fig.show()
-            if save_test_outputs:
-                fig.write_html(html_path)
-                try:
-                    fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-                except Exception as e:
-                    print(f"[PNG export skipped] {e}")
+            fig.show(renderer="browser")
+            if SAVE_TEST_OUTPUTS:
+                fig.write_html(str(html_path))
+                fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
             printed += 1
-            if printed >= test_limit:
+            if printed >= TEST_LIMIT:
                 break
         else:
-            fig.write_html(html_path)
-            try:
-                fig.write_image(png_path, width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
-            except Exception as e:
-                print(f"[PNG export skipped] {e}")
+            fig.write_html(str(html_path))
+            fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
 
-    print(f"--- Test mode ON: Test completed (limit={test_limit}) ---" if test_mode else "--- Done ---")
+    # --- Finished ---
+    print("--- Test mode ON: Test completed ---" if TEST_MODE else "--- Done ---")
 
+
+# Guard to prevent execution on import
 if __name__ == "__main__":
-    args = parse_args()
-    main(args)
+    main()

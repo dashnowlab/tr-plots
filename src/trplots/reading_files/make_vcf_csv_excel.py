@@ -25,8 +25,8 @@ os.makedirs(CSV_DIR, exist_ok=True)
 os.makedirs(EXCEL_DIR, exist_ok=True)
 
 # Output filenames
-CSV_PATH = CSV_DIR / "83_loci_503_samples_CSV.csv"
-EXCEL_PATH = EXCEL_DIR / "83_loci_503_samples_Excel.xlsx"
+CSV_PATH = CSV_DIR / "83_loci_503_samples_CSV_TEST.csv"
+EXCEL_PATH = EXCEL_DIR / "83_loci_503_samples_Excel_TEST.xlsx"
 
 # --- Convert VCF (gz) to CSV ---
 with gzip.open(VCF_PATH, "rt") as vcf_in, open(CSV_PATH, "w", newline="") as csv_out:
