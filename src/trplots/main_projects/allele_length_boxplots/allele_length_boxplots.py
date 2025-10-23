@@ -32,13 +32,13 @@ DATA_PATH = (OTHER_DATA / "master_allele_spreadsheet.xlsx")
 SHEET_NAME = "Integrated Alleles"
 
 # --- Output roots (Simplified/centralized definition) ---
-OUTPUT_DIR_PNG_BASE  = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master_NEW", "png")
-OUTPUT_DIR_HTML_BASE = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master_NEW", "html")
-
+# Ensuring base directories exist once outside of the plotting loop
+OUTPUT_DIR_PNG_BASE  = ENSURE_DIR("plots", "allele_length_boxplots", "png")
+OUTPUT_DIR_HTML_BASE = ENSURE_DIR("plots", "allele_length_boxplots", "html")
 
 # --- TEST MODE ---
-TEST_MODE_DEFAULT = True        # Default state
-TEST_LIMIT_DEFAULT = 3          # Default limit
+TEST_MODE_DEFAULT = True         # Default state
+TEST_LIMIT_DEFAULT = 8            # Default limit
 SAVE_TEST_OUTPUTS_DEFAULT = False # Default save state
 
 def parse_args():
@@ -132,6 +132,7 @@ def _make_locus(row):
     if chrom_valid and pos_valid:
         chrom_str = f"Chr{chrom}" if not str(chrom).lower().startswith('chr') else str(chrom)
         try:
+            # Use float conversion first to safely handle scientific notation/decimals
             pos_int = int(float(pos))
             pos_str = f"{pos_int}"
         except Exception:
@@ -145,53 +146,23 @@ def _make_locus(row):
     disease = str(row.get('Disease', '')).strip()
     return f"{gene}|{disease}|{chrom}:{pos}"
 
-# -------------------- Plotting (ALL alleles) --------------------
-def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, show_points=False):
+# -------------------- Plotting (ALL alleles) - Optimized Function --------------------
+def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_points=False):
     """
-    Build a horizontal boxplot for one Locus using **all allele lengths**,
-    showing ALL populations even if they have no data.
+    Build a horizontal boxplot for one Locus using **pre-calculated data**.
     """
-    subset = raw_df[
-        (raw_df['Gene'] == gene) &
-        (raw_df['Disease'] == disease) &
-        (raw_df['Locus'] == locus)
-    ].copy()
-
-    ordered_categories = SUPERPOP_ORDER[:]
-    subset['SuperPop'] = pd.Categorical(
-        subset['SuperPop'],
-        categories=ordered_categories,
-        ordered=True
-    )
-
-    # If subset is empty (no rows at all), create a dummy frame to keep axis happy
-    plot_df = subset if not subset.empty else pd.DataFrame({
-        'Allele length': [np.nan],
-        'SuperPop': pd.Categorical(['All'], categories=ordered_categories, ordered=True)
-    })
-
-    # Inheritance (normalized)
-    base_inh = raw_df[
-        (raw_df['Gene'] == gene) & (raw_df['Disease'] == disease) & (raw_df['Locus'] == locus)
-    ]['Inheritance_norm']
-    inheritance = base_inh.iloc[0] if not base_inh.empty else 'Unknown'
-    if inheritance not in ['AD', 'AR', 'XD', 'XR']:
-        inheritance = 'Unknown'
-
-    # Counts per population (unique individuals)
-    counts = (
-        subset.groupby('SuperPop', observed=True)['Sample ID Cleaned'] # Use Sample ID Cleaned as this is the individual ID
-              .nunique()
-              .reindex(ordered_categories)
-              .fillna(0)
-              .astype(int)
-    )
-    pop_desc = ', '.join(f"{pop}: {counts.loc[pop]}" for pop in ordered_categories)
-    pop_lines = _wrap_to_lines(pop_desc, max_len=110)
-
-    # --------- Build figure with explicit box stats + separate outlier points ----------
-    fig = go.Figure()
-
+    
+    # Extract metadata from the pre-calculated dictionary
+    gene = locus_metadata['gene']
+    disease = locus_metadata['disease']
+    locus = locus_metadata['locus']
+    inheritance = locus_metadata['inheritance']
+    counts = locus_metadata['counts']
+    ordered_categories = locus_metadata['ordered_categories']
+    
+    # locus_data is the pre-filtered DataFrame subset (Allele length, SuperPop)
+    
+    # --------- Helper function for boxplot statistics (Tukey method) ----------
     def five_number_summary(x):
         x = np.asarray(x, dtype=float)
         x = x[~np.isnan(x)]
@@ -203,15 +174,31 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
         iqr = q3 - q1
         lf = q1 - 1.5 * iqr
         uf = q3 + 1.5 * iqr
+        
+        # Calculate whiskers (minimum/maximum values within 1.5 * IQR)
         lower_whisk = x[x >= lf].min() if np.any(x >= lf) else x.min()
         upper_whisk = x[x <= uf].max() if np.any(x <= uf) else x.max()
         outliers = x[(x < lf) | (x > uf)]
+        
         return q1, med, q3, lower_whisk, upper_whisk, outliers
 
+    # --------- Build figure with explicit box stats + separate outlier points ----------
+    fig = go.Figure()
+
+    # Group the pre-filtered data for fast retrieval inside the loop
+    locus_groups = locus_data.groupby('SuperPop', observed=True)['Allele length']
+
     for pop in ordered_categories:
-        xs = subset.loc[subset["SuperPop"] == pop, "Allele length"].to_numpy(dtype=float)
-        xs = xs[~np.isnan(xs)]
+        
+        # Get data for the population
+        if pop in locus_groups.groups:
+            xs = locus_groups.get_group(pop).to_numpy(dtype=float)
+            xs = xs[~np.isnan(xs)]
+        else:
+            xs = np.array([]) 
+
         if xs.size == 0:
+            # Add an empty box to ensure the y-axis is present for this population
             fig.add_trace(
                 go.Box(
                     orientation="h",
@@ -229,8 +216,10 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
         stats = five_number_summary(xs)
         if stats is None:
             continue
+            
         q1, med, q3, lw, uw, out = stats
 
+        # Add the main box trace
         fig.add_trace(
             go.Box(
                 orientation="h",
@@ -242,21 +231,15 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
                 lowerfence=[lw],
                 upperfence=[uw],
                 marker_color=POP_COLOR.get(pop, "#7f7f7f"),
-                boxpoints=False,
+                boxpoints=False, # We handle points/outliers separately
                 showlegend=False,
                 hoveron="boxes",
-                hovertemplate=(
-                    # "Population: %{y}<br>"
-                    # f"Min: {lw:.3g}<br>"
-                    # f"Q1:  {q1:.3g}<br>"
-                    # f"Median: %{x}<br>" # Note: Median is explicitly set, but x is usually the median line here.
-                    # f"Q3:  {q3:.3g}<br>"
-                    # f"Max: {uw:.3g}<extra></extra>"
-                ),
+                hovertemplate=None # Use default info
             )
         )
 
-        if out.size:
+        # Add outliers as scatter points
+        if show_points and out.size:
             fig.add_trace(
                 go.Scatter(
                     x=out,
@@ -269,6 +252,7 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
                 )
             )
 
+    # Axis ordering (must be done outside the loop)
     fig.update_yaxes(
         categoryorder='array',
         categoryarray=ordered_categories,
@@ -278,6 +262,11 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
         title=""
     )
 
+    # Counts per population (unique individuals) -> pre-calculated
+    pop_desc = ', '.join(f"{pop}: {counts.get(pop, 0)}" for pop in ordered_categories)
+    pop_lines = _wrap_to_lines(pop_desc, max_len=110)
+    
+    # Annotations for "no data"
     missing = [c for c in ordered_categories if counts.get(c, 0) == 0]
     if show_no_data_note and missing:
         for cat in missing:
@@ -288,6 +277,7 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
                 showarrow=False, align='left'
             )
 
+    # Layout (unchanged)
     fig.update_layout(
         hovermode="closest",
         width=FIG_WIDTH,
@@ -301,6 +291,7 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
         yaxis=dict(ticks='outside', showline=True, linecolor='black'),
     )
 
+    # Fixed-position header via annotations
     main_title = "<b>Allele Lengths per Population</b>"
     subtitle_lines = [
         f"{gene} - {disease}",
@@ -334,16 +325,8 @@ def create_boxplot_all(gene, disease, locus, raw_df, show_no_data_note=True, sho
 
 # --- Main entrypoint (make script import-safe) ---
 def main(args=None):
-    # 1. Define paths based on config/CLI arguments
     
-    # OUTPUT_DIR_PNG and OUTPUT_DIR_HTML are defined globally at the module level (but before args)
-    # We redefine them here to ensure they correctly apply test mode or CLI output-dir override.
-    
-    # Global variables OUTPUT_DIR_PNG, OUTPUT_DIR_HTML, TEST_MODE, etc. are implicitly
-    # used by the plotting functions. We must establish their final values here.
-
     # Parse arguments first
-    # Use the locally scoped, updated DATA_PATH for the argument default
     args = parse_args()
     
     # Establish final test mode and path settings
@@ -369,7 +352,7 @@ def main(args=None):
     if test_mode:
         # If test mode is ON, and no custom output_dir was given, use the 'test_outputs' subfolder
         if not args.output_dir:
-            test_output = ENSURE_DIR("plots", "allele_length_boxplots", "allele_length_boxplots_master", "test_outputs")
+            test_output = ENSURE_DIR("plots", "allele_length_boxplots", "test_outputs")
             output_dir_png = test_output
             output_dir_html = test_output
         print(f"--- Test mode ON (limit={test_limit}) ---")
@@ -384,6 +367,8 @@ def main(args=None):
         print(f"Error: Sheet '{SHEET_NAME}' not found in file: {data_path}. Check SHEET_NAME variable.")
         return
 
+    # --- Data Cleaning and Preparation (Vectorized and done once) ---
+    
     # Ensure numeric columns are numeric
     if 'Allele length' in df.columns:
         df['Allele length'] = pd.to_numeric(df['Allele length'], errors='coerce')
@@ -400,26 +385,70 @@ def main(args=None):
     # --- Add 'All' population (aggregate superpop row copied from the raw table) ---
     df_all = df.copy()
     df_all["SuperPop"] = "All"
+    if 'SuperPop' not in df.columns:
+         raise ValueError("Missing 'SuperPop' column in input data.")
+         
     df = pd.concat([df, df_all], ignore_index=True)
+    
+    # Ensure SuperPop is categorical for consistent sorting in groups
+    df['SuperPop'] = pd.Categorical(df['SuperPop'], categories=SUPERPOP_ORDER, ordered=True)
 
     # --- Safety: ensure required columns exist ---
-    for required in ['Gene', 'Disease', 'Locus', 'SuperPop', 'Sample ID Cleaned', 'Allele length']:
+    for required in ['Gene', 'Disease', 'Locus', 'SuperPop', 'Sample ID Cleaned', 'Allele length', 'Inheritance_norm']:
         if required not in df.columns:
-            # Note: Using 'Sample ID Cleaned' as this is the name generated by the creation script
             raise ValueError(f"Missing required column: '{required}'. Please check the input file structure.")
 
-    # --- Generate plots: one per Locus (ALL alleles) ---
+    # --- 3. Pre-calculate Locus Data and Metadata (Performance gain) ---
+    
+    # Identify unique loci (Gene, Disease, Locus triplet)
+    # Group the main DataFrame once by the Locus identifier for fast subsetting
+    locus_groups = df.groupby(['Gene', 'Disease', 'Locus'], observed=True)
+    locus_data_map = {}
+    
+    for (gene, disease, locus), group_df in locus_groups:
+        
+        # Calculate unique individual counts for all populations present in this locus
+        counts_series = (
+            group_df.groupby('SuperPop', observed=True)['Sample ID Cleaned']
+                    .nunique()
+        ).reindex(SUPERPOP_ORDER).fillna(0).astype(int)
+        
+        # Extract inheritance mode (guaranteed to exist due to cleanup step)
+        inheritance = group_df['Inheritance_norm'].iloc[0]
+
+        # Store the pre-filtered subset and metadata
+        locus_data_map[(gene, disease, locus)] = {
+            # Only store the necessary columns for plotting (Allele length, SuperPop)
+            'data': group_df[['Allele length', 'SuperPop']].copy(),
+            'metadata': {
+                'gene': gene,
+                'disease': disease,
+                'locus': locus,
+                'inheritance': inheritance,
+                'counts': counts_series.to_dict(),
+                'ordered_categories': SUPERPOP_ORDER
+            }
+        }
+        
+    # --- 4. Generate plots: one per Locus (using pre-calculated data) ---
     printed = 0
 
-    unique_triplets = (
-        df[['Gene', 'Disease', 'Locus']]
-        .dropna(subset=['Gene', 'Disease', 'Locus'])
-        .drop_duplicates()
-    )
+    for _, data_entry in locus_data_map.items():
+        gene = data_entry['metadata']['gene']
+        disease = data_entry['metadata']['disease']
+        locus = data_entry['metadata']['locus']
+        
+        # Skip if no data exists 
+        if data_entry['data'].empty or data_entry['data']['Allele length'].dropna().empty:
+            continue
 
-    for _, row in unique_triplets.iterrows():
-        gene, disease, locus = row['Gene'], row['Disease'], row['Locus']
-        fig = create_boxplot_all(gene, disease, locus, df, show_no_data_note=True, show_points=False)
+        # Call the optimized plotting function
+        fig = create_boxplot_all(
+            data_entry['data'], 
+            data_entry['metadata'], 
+            show_no_data_note=True, 
+            show_points=False 
+        )
 
         # Safe filenames
         safe_gene = re.sub(r'[\\/]', '_', str(gene))
@@ -427,8 +456,8 @@ def main(args=None):
         safe_locus = re.sub(r'[\\/:*?"<>|]+', '_', str(locus))[:120]
 
         # Use the finalized output directories
-        png_path  = output_dir_png  / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.png"
-        html_path = output_dir_html / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot_ALL.html"
+        png_path  = output_dir_png  / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot.png"
+        html_path = output_dir_html / f"{safe_gene}_{safe_disease}_{safe_locus}_allele_length_boxplot.html"
 
         if test_mode:
             print(f"Previewing: {gene} / {disease} / {locus}")
