@@ -1,103 +1,81 @@
-# NOTE TO SELF: need to update file paths to use config.py style paths
-
 """
 ---------------------------------------------
  Script: Creating Master Allele Spreadsheet
- Purpose:
-    - Integrate VCF and locus metadata into a comprehensive allele spreadsheet
-    - Include demographic and technology data from sample summary CSV
-    - Save as Excel file with clear column structure
+ (fixed AL handling + backfill SubPop/SuperPop/Sex from 1kGP when Unknown)
+ + QC: mark <=0 as NaN and write "NaN" in Excel for Allele length & Repeat count
+ + Add Haplotype column (1 or 2)
+ + Append QC reason 'inheritance_AD_and_AR' when Inheritance contains both AD and AR
 ---------------------------------------------
 """
 
-import pandas as pd
-import json
-import csv
-import io
-import re
-import os
-import gzip
-from openpyxl.utils import get_column_letter
 import argparse
+import gzip
+import json
+import os
+import re
+from typing import Dict, List, Optional
 
-# --- File Paths ---
-VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/83_loci_503_samples/1000g-ont-strchive-83_loci_503_samples.vcf.gz'
+import pandas as pd
+from openpyxl.utils import get_column_letter  # noqa: F401
+
+# ---------- Defaults (override via CLI) ----------
+VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/81_loci_502_samples/1000g-ont-strchive-81_loci_502_samples_81224_alleles.vcf.gz'
 LOCI_JSON = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json'
-
-# Data now comes from the summary CSV, including Pop/Sex/Pore
 SAMPLE_SUMMARY_CSV = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1kgp_ont_500_summary_-_sheet1.csv'
+KGP_SAMPLE_INFO = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1000_genomes_20130606_sample_info.txt'
 OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/master_allele_spreadsheet.xlsx'
 
+# ---------- CLI ----------
 def parse_args():
     p = argparse.ArgumentParser(description="Create integrated master allele spreadsheet")
     p.add_argument("--vcf", type=str, default=VCF_FILE, help="Input VCF (gzipped or plain)")
     p.add_argument("--loci-json", type=str, default=LOCI_JSON, help="Loci JSON metadata")
     p.add_argument("--sample-csv", type=str, default=SAMPLE_SUMMARY_CSV, help="Sample summary CSV (header on row 2)")
+    p.add_argument("--kgp-sample-info", type=str, default=KGP_SAMPLE_INFO,
+                   help="1000 Genomes sample-info TXT (20130606)")
     p.add_argument("--output", type=str, default=OUTPUT_FILE, help="Output Excel file path")
+    p.add_argument("--drop-sample", action="append", default=[],
+                   help="Sample ID(s) to drop (exact match to VCF header sample names). Repeatable.")
     return p.parse_args()
 
-# --- Data Loading and Parsing Functions ---
-
-def load_loci_data(json_file):
-    """
-    Loads STR Loci information from JSON into a dict. 
-    UPDATED to pull 'flank_motif' for the Flank Motif Structure column.
-    """
-    print("Loading Loci Data...")
+# ---------- Data Loading ----------
+def load_loci_data(json_file: str) -> Dict[str, dict]:
     with open(json_file, 'r') as f:
         data = json.load(f)
-    
-    loci_map = {}
-    missing_flank_count = 0
-    
+
+    loci_map: Dict[str, dict] = {}
     for entry in data:
-        # --- START: Updated to pull 'flank_motif' as requested ---
         flank_motif_value = entry.get('flank_motif')
-        
-        # Track missing value and ensure it's a string if present but complex
-        if flank_motif_value is None:
-            missing_flank_count += 1
-        elif not isinstance(flank_motif_value, str):
-            # Convert complex structures (like lists/dicts) into a printable string
+        if flank_motif_value is not None and not isinstance(flank_motif_value, str):
             flank_motif_value = str(flank_motif_value)
-        # --- END: Updated to pull 'flank_motif' ---
 
         entry_data = {
             'Gene': entry.get('gene'),
             'Disease': entry.get('disease'),
             'Disease ID': entry.get('disease_id'),
-            'Motif': entry.get('reference_motif_reference_orientation', [None])[0],
+            'Motif': (entry.get('reference_motif_reference_orientation') or [None])[0],
             'Motif length': entry.get('motif_len'),
             'Benign min': entry.get('benign_min'),
             'Benign max': entry.get('benign_max'),
             'Pathogenic min': entry.get('pathogenic_min'),
             'Pathogenic max': entry.get('pathogenic_max'),
             'Inheritance': ', '.join(entry.get('inheritance', [])),
-            'Flank Motif Structure': flank_motif_value # Use the 'flank_motif' value
+            'Flank Motif Structure': flank_motif_value
         }
-        
         id_key = entry['id']
         pos_key = f"{entry['chrom'].replace('chr', '')}:{entry['start_hg38']}"
-        
         loci_map[id_key] = entry_data
         loci_map[pos_key] = entry_data
-        
-    print(f"Loaded {len(data)} unique loci (with {len(loci_map)} total lookup keys).")
-    if missing_flank_count > 0:
-        print(f"DIAGNOSTIC: Found {missing_flank_count} loci in the JSON with missing 'Flank Motif Structure' (Flank Motif).")
+    print(f"Loaded loci: {len(data)} (lookup keys: {len(loci_map)})")
     return loci_map
 
-def load_all_sample_info(summary_csv_file):
+def load_all_sample_info(summary_csv_file: str) -> Dict[str, dict]:
     """
-    Loads sample demographic and technology data directly from the summary CSV.
-    The header for the required columns is on the second row (index 1).
+    Load demographics/tech from your CSV (header is on row 2).
     """
-    print(f"Loading All Sample Data from {summary_csv_file}...")
-    
-    # Load the CSV, specifying the header is on the second row (index 1)
+    print(f"Loading summary CSV: {summary_csv_file}")
     df_summary = pd.read_csv(summary_csv_file, header=1)
-    
-    # Select and rename the required columns
+
     df_summary.rename(columns={
         'Sample_ID': 'Sample ID Cleaned',
         'Sex': 'Sex',
@@ -105,253 +83,384 @@ def load_all_sample_info(summary_csv_file):
         'SuperPop': 'SuperPop',
         'Pore': 'Pore'
     }, inplace=True)
-    
-    # Filter down to the essential columns and set index
+
     columns_to_keep = ['Sample ID Cleaned', 'SubPop', 'SuperPop', 'Sex', 'Pore']
-    df_sample_info = df_summary[columns_to_keep].drop_duplicates(
-        subset=['Sample ID Cleaned'], keep='first'
-    ).set_index('Sample ID Cleaned')
+    df_sample_info = (
+        df_summary[columns_to_keep]
+        .drop_duplicates(subset=['Sample ID Cleaned'], keep='first')
+        .set_index('Sample ID Cleaned')
+    )
 
-    # Ensure no missing values (fill with 'Unknown')
-    df_sample_info['Sex'] = df_sample_info['Sex'].fillna('Unknown')
-    df_sample_info['SubPop'] = df_sample_info['SubPop'].fillna('Unknown')
-    df_sample_info['SuperPop'] = df_sample_info['SuperPop'].fillna('Unknown')
-    df_sample_info['Pore'] = df_sample_info['Pore'].fillna('Unknown')
+    for col in ['Sex', 'SubPop', 'SuperPop', 'Pore']:
+        df_sample_info[col] = df_sample_info[col].fillna('Unknown')
 
-    # Convert to dictionary
-    sample_map = df_sample_info.to_dict('index')
-    
-    print(f"Loaded {len(sample_map)} unique sample demographic entries.")
-    return sample_map
+    result = df_sample_info.to_dict('index')
+    print(f"Summary CSV entries: {len(result)}")
+    return result
 
-def parse_vcf_and_merge(vcf_file, loci_map, sample_map):
+# --- 1000G population → superpopulation map ---
+_POP_TO_SUPERPOP = {
+    # AFR
+    'YRI': 'AFR', 'LWK': 'AFR', 'GWD': 'AFR', 'MSL': 'AFR', 'ESN': 'AFR', 'ACB': 'AFR', 'ASW': 'AFR',
+    # AMR
+    'CLM': 'AMR', 'MXL': 'AMR', 'PEL': 'AMR', 'PUR': 'AMR',
+    # EAS
+    'CHB': 'EAS', 'CHS': 'EAS', 'JPT': 'EAS', 'CDX': 'EAS', 'KHV': 'EAS',
+    # EUR
+    'CEU': 'EUR', 'TSI': 'EUR', 'FIN': 'EUR', 'GBR': 'EUR', 'IBS': 'EUR',
+    # SAS
+    'GIH': 'SAS', 'PJL': 'SAS', 'BEB': 'SAS', 'STU': 'SAS', 'ITU': 'SAS',
+}
+
+def _norm_sex(x: Optional[str]) -> str:
+    """Normalize to 'XX' for female, 'XY' for male, else 'Unknown'."""
+    if x is None:
+        return 'Unknown'
+    s = str(x).strip().lower()
+    if s in ['f', 'female']:
+        return 'XX'
+    if s in ['m', 'male']:
+        return 'XY'
+    return 'Unknown'
+
+def load_1kgp_sample_info(kgp_txt_path: str) -> Dict[str, dict]:
     """
-    Parses the VCF file, flattens it to an allele table, and merges metadata.
-    Excludes the known zero-data sample.
+    Read 1000 Genomes 20130606 sample-info (tab-delimited).
+    Returns {Sample: {'SubPop_from_1kGP', 'SuperPop_from_1kGP', 'Sex_from_1kGP'}}
     """
+    print(f"Loading 1kGP sample-info: {kgp_txt_path}")
+    df = pd.read_csv(kgp_txt_path, sep='\t', dtype=str)
+
+    # Required columns
+    if 'Sample' not in df.columns or 'Population' not in df.columns:
+        raise ValueError("1kGP sample-info file must contain 'Sample' and 'Population' columns.")
+
+    # Optional 'Gender' (or sometimes 'Sex'); normalize to XX/XY if present
+    if 'Gender' not in df.columns:
+        if 'Sex' in df.columns:
+            df['Gender'] = df['Sex']
+        else:
+            df['Gender'] = None
+
+    df['Population'] = df['Population'].astype(str)
+    df['SuperPop_from_1kGP'] = df['Population'].map(_POP_TO_SUPERPOP).fillna('Unknown')
+    df['SubPop_from_1kGP'] = df['Population']
+    df['Sex_from_1kGP'] = df['Gender'].apply(_norm_sex)
+
+    df_out = df[['Sample', 'SubPop_from_1kGP', 'SuperPop_from_1kGP', 'Sex_from_1kGP']].drop_duplicates('Sample').set_index('Sample')
+    result = df_out.to_dict('index')
+    print(f"1kGP entries: {len(result)}")
+    return result
+
+# ---------- Helpers ----------
+_GT_SPLIT_RE = re.compile(r'[\/|]')
+
+def _calc_motif_len(locus_data: dict, motif_from_info: Optional[str], ref: str) -> float:
+    motif_len = locus_data.get('Motif length')
+    if isinstance(motif_len, (int, float)) and motif_len > 0:
+        return float(motif_len)
+    motif_to_use = locus_data.get('Motif') or motif_from_info
+    if motif_to_use:
+        return float(len(motif_to_use))
+    return float(len(ref)) if ref else 0.0
+
+def _hap_lengths_from_AL(AL_field: str) -> List[Optional[int]]:
+    if not AL_field or AL_field == '.':
+        return [None, None]
+    toks = [t for t in AL_field.split(',') if t not in ['', '.']]
+    out: List[Optional[int]] = []
+    for t in toks[:2]:
+        try:
+            out.append(int(t))
+        except Exception:
+            out.append(None)
+    while len(out) < 2:
+        out.append(None)
+    return out
+
+def _clean_sample_id(raw: str) -> str:
+    m = re.match(r'^(HG\d+|GM\d+|NA\d+)', raw)
+    return m.group(0) if m else raw.split('-')[0].split('_')[0]
+
+# NEW: helper to detect ambiguous inheritance (AD and AR both present)
+_INHER_SPLIT_RE = re.compile(r'[,/;| ]+')
+def _has_both_ad_ar(inheritance_text: Optional[str]) -> bool:
+    if not inheritance_text:
+        return False
+    toks = [t.strip().lower() for t in _INHER_SPLIT_RE.split(str(inheritance_text)) if t.strip()]
+    return ('ad' in toks) and ('ar' in toks)
+
+# ---------- Core ----------
+def parse_vcf_and_merge(
+    vcf_file: str,
+    loci_map: Dict[str, dict],
+    sample_map_csv: Dict[str, dict],
+    sample_map_1kgp: Dict[str, dict],
+    drop_samples: List[str]
+) -> pd.DataFrame:
+
     print("Parsing VCF and building allele table...")
-    allele_records = []
-    vcf_header_sample_ids = []
-    
-    # Define the list of samples to explicitly exclude (the one with no data)
-    SAMPLES_TO_EXCLUDE = {
-        'HG01843-ONT-hg38-R9-LSK110-dorado050_sup_with5mC'
+    allele_records: List[dict] = []
+    vcf_header_sample_ids: List[str] = []
+
+    opener = gzip.open if vcf_file.endswith('.gz') else open
+    mode = 'rt' if vcf_file.endswith('.gz') else 'r'
+
+    DEFAULT_LOCUS_DATA = {
+        'Gene': 'Unknown', 'Disease': 'Unknown', 'Disease ID': 'Unknown',
+        'Motif': None, 'Motif length': 0,
+        'Benign min': None, 'Benign max': None,
+        'Pathogenic min': None, 'Pathogenic max': None,
+        'Inheritance': 'Unknown', 'Flank Motif Structure': None
     }
-    
-    try:
-        opener = gzip.open if vcf_file.endswith('.gz') else open
-        mode = 'rt' if vcf_file.endswith('.gz') else 'r'
-            
-        DEFAULT_LOCUS_DATA = {
-            'Gene': 'Unknown', 'Disease': 'Unknown', 'Disease ID': 'Unknown',
-            'Motif': None, 'Motif length': 0, 
-            'Benign min': None, 'Benign max': None, 
-            'Pathogenic min': None, 'Pathogenic max': None, 
-            'Inheritance': 'Unknown', 'Flank Motif Structure': None
-        }
 
-        with opener(vcf_file, mode, encoding='utf-8') as f:
-            for line in f:
-                if line.startswith('##'): continue
-                
-                if line.startswith('#CHROM'):
-                    header = line.strip().split('\t')
-                    vcf_header_sample_ids = header[9:] 
-                    print(f"VCF Header Sample Count: {len(vcf_header_sample_ids)}")
+    total_sites = 0
+    with opener(vcf_file, mode, encoding='utf-8') as f:
+        for line in f:
+            if line.startswith('##'):
+                continue
+
+            if line.startswith('#CHROM'):
+                header = line.strip().split('\t')
+                vcf_header_sample_ids = header[9:]
+                print(f"VCF Header Sample Count: {len(vcf_header_sample_ids)}")
+                if drop_samples:
+                    missing = [s for s in drop_samples if s not in vcf_header_sample_ids]
+                    if missing:
+                        print(f"NOTE: --drop-sample not in header (ignored): {missing}")
+                continue
+
+            if not vcf_header_sample_ids:
+                continue
+
+            fields = line.rstrip('\n').split('\t')
+            if len(fields) < 10:
+                continue
+
+            chrom, pos, identifier, ref, alt_str, qual, filt, info_str, fmt_str = fields[:9]
+            sample_fields = fields[9:]
+            total_sites += 1
+
+            # INFO
+            info_dict = {}
+            for item in info_str.split(';'):
+                if '=' in item:
+                    k, v = item.split('=', 1)
+                    info_dict[k] = v
+            motif_from_info = info_dict.get('MOTIF')
+
+            # locus mapping by id or chrom:pos
+            locus_key_id = identifier if identifier and identifier != '.' else None
+            locus_key_pos = f"{chrom.replace('chr', '')}:{pos}"
+            locus_data = loci_map.get(locus_key_id) or loci_map.get(locus_key_pos) or DEFAULT_LOCUS_DATA
+            if locus_data is DEFAULT_LOCUS_DATA and motif_from_info and not locus_data['Motif']:
+                locus_data = dict(DEFAULT_LOCUS_DATA)
+                locus_data['Motif'] = motif_from_info
+
+            motif_len = _calc_motif_len(locus_data, motif_from_info, ref)
+            fmt_keys = fmt_str.split(':')
+
+            # iterate samples
+            for i, sample_field in enumerate(sample_fields):
+                sample_id_full = vcf_header_sample_ids[i]
+                if sample_id_full in drop_samples:
                     continue
-                
-                if not vcf_header_sample_ids: continue
-                    
-                fields = line.strip().split('\t')
-                if len(fields) < 10: continue
-                    
-                chrom, pos, identifier, ref, alt_str, qual, filter_val, info_str, fmt_str = fields[:9]
-                
-                info_dict = {}
-                for item in info_str.split(';'):
-                    if '=' in item:
-                        k, v = item.split('=', 1)
-                        info_dict[k] = v
-                motif_from_info = info_dict.get('MOTIF')
-                
-                # Dual Lookup Strategy for Locus Data
-                locus_key_id = identifier if identifier and identifier != '.' else None
-                locus_key_pos = f"{chrom.replace('chr', '')}:{pos}"
 
-                locus_data = loci_map.get(locus_key_id)
-                if locus_data is None:
-                    locus_data = loci_map.get(locus_key_pos)
-                    
-                if locus_data is None:
-                    locus_data = DEFAULT_LOCUS_DATA.copy()
-                    locus_data['Motif'] = motif_from_info 
-                
-                # Motif Length Sanitization
-                motif_len = locus_data.get('Motif length')
-                if motif_len is None or not isinstance(motif_len, (int, float)) or motif_len <= 0:
-                    try:
-                        motif_len = float(motif_len) if motif_len else 0
-                    except ValueError:
-                        motif_len = 0
-                    if motif_len <= 0:
-                        motif_to_use = locus_data.get('Motif') or motif_from_info
-                        if motif_to_use and len(motif_to_use) > 0:
-                            motif_len = len(motif_to_use)
-                        else:
-                            motif_len = 3 
+                sample_id_clean = _clean_sample_id(sample_id_full)
 
-                # Process Genotypes per Sample
-                genotype_data = fields[9:]
-                
-                for i, sample_genotype_str in enumerate(genotype_data):
-                    sample_id_full = vcf_header_sample_ids[i]
-                    
-                    # --- EXCLUSION CHECK ---
-                    if sample_id_full in SAMPLES_TO_EXCLUDE:
-                        continue # Skip processing this sample's genotype data entirely
-                    # -----------------------
+                # Start with CSV demographics
+                demo = {'SubPop': 'Unknown', 'SuperPop': 'Unknown', 'Sex': 'Unknown', 'Pore': 'Unknown'}
+                if sample_map_csv.get(sample_id_clean):
+                    demo.update(sample_map_csv[sample_id_clean])
 
-                    match = re.match(r'^(HG\d+|GM\d+|NA\d+)', sample_id_full)
-                    sample_id_clean = match.group(0) if match else sample_id_full.split('-')[0].split('_')[0]
+                # Backfill from 1kGP ONLY when Unknown/empty
+                kgp = sample_map_1kgp.get(sample_id_clean, {})
 
-                    # Fetch demographic data from the consolidated map
-                    demo_data = sample_map.get(sample_id_clean, {
-                        'SubPop': 'Unknown', 'SuperPop': 'Unknown', 'Sex': 'Unknown', 'Pore': 'Unknown'
+                def _is_unknown(x):
+                    return (x is None) or (str(x).strip().lower() in ['', 'unknown', 'nan'])
+
+                # SubPop/SuperPop
+                if _is_unknown(demo.get('SubPop')) and kgp.get('SubPop_from_1kGP'):
+                    demo['SubPop'] = kgp['SubPop_from_1kGP']
+
+                if _is_unknown(demo.get('SuperPop')):
+                    sp = kgp.get('SuperPop_from_1kGP')
+                    if sp:
+                        demo['SuperPop'] = sp
+
+                # Sex (XX/XY backfill only)
+                if _is_unknown(demo.get('Sex')) and kgp.get('Sex_from_1kGP'):
+                    demo['Sex'] = kgp['Sex_from_1kGP']
+
+                fmt_vals = sample_field.split(':')
+                fmt_data = dict(zip(fmt_keys, fmt_vals))
+
+                gt = fmt_data.get('GT', './.')
+                if gt in ('.', './.', '.|.'):
+                    continue
+
+                # Split into haplotypes (diploid max)
+                gt_toks = re.split(r'[\/|]', gt)[:2]
+                while len(gt_toks) < 2:
+                    gt_toks.append('.')
+
+                al_haps = _hap_lengths_from_AL(fmt_data.get('AL', '.'))
+
+                # --- inheritance ambiguity check (once per row) ---
+                inheritance_text = locus_data.get('Inheritance', '')
+                inheritance_ambig = _has_both_ad_ar(inheritance_text)
+
+                for hap_idx, allele_tok in enumerate(gt_toks):
+                    if allele_tok == '.':
+                        continue
+
+                    # --- Compute allele length per haplotype with QC ---
+                    qc_reasons = []
+
+                    if allele_tok == '0':
+                        # reference allele -> length = len(REF)
+                        allele_len = len(ref) if ref is not None else float('nan')
+                        if not (isinstance(allele_len, (int, float)) and allele_len > 0):
+                            qc_reasons.append('ref_len_le0_or_missing')
+                            allele_len = float('nan')
+                    else:
+                        # ALT allele -> from AL per-haplotype
+                        allele_len = al_haps[hap_idx]
+                        if (allele_len is None) or (allele_len <= 0):
+                            qc_reasons.append('AL_missing_or_le0')
+                            allele_len = float('nan')  # force NaN for <=0/missing
+
+                    # Repeat count: only if both allele_len and motif_len are valid (>0)
+                    if motif_len and isinstance(motif_len, (int, float)) and motif_len > 0:
+                        repeat_count = (round(allele_len / motif_len, 2)
+                                        if (isinstance(allele_len, (int, float)) and allele_len > 0)
+                                        else float('nan'))
+                    else:
+                        qc_reasons.append('motif_len_le0_or_missing')
+                        repeat_count = float('nan')
+
+                    # NEW: append inheritance ambiguity reason
+                    if inheritance_ambig:
+                        qc_reasons.append('inheritance_AD_and_AR')
+
+                    allele_records.append({
+                        'Chromosome': chrom.replace('chr', ''),
+                        'Position (Start)': pos,
+                        'Gene': locus_data['Gene'],
+                        'Disease': locus_data['Disease'],
+                        'Disease ID': locus_data['Disease ID'],
+                        'Motif': locus_data['Motif'],
+                        'Motif length': motif_len,
+                        'Flank Motif Structure': locus_data['Flank Motif Structure'],
+                        'Benign min': locus_data['Benign min'],
+                        'Benign max': locus_data['Benign max'],
+                        'Pathogenic min': locus_data['Pathogenic min'],
+                        'Pathogenic max': locus_data['Pathogenic max'],
+                        'Inheritance': inheritance_text,
+                        'Allele Length (bp)': allele_len,        # NaN when invalid
+                        'Repeat count (Calc)': repeat_count,     # NaN when invalid
+                        'Haplotype': hap_idx + 1,                # 1 or 2 (will need to change to paternal/maternal later)
+                        'Sample ID (Raw)': sample_id_full,
+                        'Sample ID (Cleaned)': sample_id_clean,
+                        'SubPop': demo.get('SubPop', 'Unknown'),
+                        'SuperPop': demo.get('SuperPop', 'Unknown'),
+                        'Sex': demo.get('Sex', 'Unknown'),
+                        'Pore': demo.get('Pore', 'Unknown'),
+                        # --- QC flags ---
+                        'QC Flag': 'Yes' if qc_reasons else '',
+                        'QC Reasons': ';'.join(qc_reasons) if qc_reasons else '',
                     })
 
-                    format_keys = fmt_str.split(':')
-                    format_values = sample_genotype_str.split(':')
-                    fmt_data = dict(zip(format_keys, format_values))
-                    
-                    alleles_indices = re.split(r'[/|]', fmt_data.get('GT', './.'))
-                    allele_lengths_str = fmt_data.get('AL', '.')
-                    
-                    len_map = {0: len(ref)}
-                    try:
-                        allele_lengths = [int(l) for l in allele_lengths_str.split(',') if l and l != '.']
-                        for k, length in enumerate(allele_lengths):
-                            len_map[k + 1] = length
-                    except ValueError: pass
-                    
-                    for allele_index, allele_type in enumerate(alleles_indices):
-                        # CRITICAL FILTERING STEP: If genotype is missing ('.') or the allele type index is '.', skip
-                        if allele_type == '.': continue 
-                        
-                        try:
-                            allele_type_int = int(allele_type)
-                        except ValueError: continue 
-                        
-                        allele_length = len_map.get(allele_type_int)
-                        if allele_length is None: continue
-                            
-                        repeat_count = round(allele_length / motif_len, 2) if motif_len and motif_len > 0 else 'N/A'
-                        
-                        record = {
-                            'Chromosome': chrom.replace('chr', ''),
-                            'Position (Start)': pos,
-                            'Gene': locus_data['Gene'],
-                            'Disease': locus_data['Disease'],
-                            'Disease ID': locus_data['Disease ID'],
-                            'Motif': locus_data['Motif'],
-                            'Motif length': motif_len,
-                            'Flank Motif Structure': locus_data['Flank Motif Structure'],
-                            'Benign min': locus_data['Benign min'],
-                            'Benign max': locus_data['Benign max'],
-                            'Pathogenic min': locus_data['Pathogenic min'],
-                            'Pathogenic max': locus_data['Pathogenic max'],
-                            'Inheritance': locus_data['Inheritance'],
-                            'Allele Length (bp)': allele_length, 
-                            'Repeat count (Calc)': repeat_count,
-                            'Sample ID (Raw)': sample_id_full,
-                            'Sample ID (Cleaned)': sample_id_clean,
-                            'SubPop': demo_data.get('SubPop', 'Unknown'),
-                            'SuperPop': demo_data.get('SuperPop', 'Unknown'), 
-                            'Sex': demo_data.get('Sex', 'Unknown'),
-                            'Pore': demo_data.get('Pore', 'Unknown'),
-                        }
-                        allele_records.append(record)
-    
-    except FileNotFoundError:
-        print(f"Error: The VCF file was not found at the specified path: {vcf_file}")
-        return pd.DataFrame()
-    except Exception as e:
-        print(f"An unexpected error occurred during VCF parsing: {e}")
+    if not allele_records:
+        print("No allele records parsed.")
         return pd.DataFrame()
 
-    if allele_records:
-        df_alleles = pd.DataFrame(allele_records)
-        processed_sample_ids = df_alleles['Sample ID (Raw)'].unique()
-        
-        print(f"Finished parsing VCF. Generated {len(allele_records)} individual allele calls.")
-        print(f"Total Unique Samples in final spreadsheet: {len(processed_sample_ids)}")
-    else:
-        df_alleles = pd.DataFrame()
-        
-    return df_alleles
+    df = pd.DataFrame(allele_records)
+    print("Finished parsing VCF.")
+    print(f"  Total variant records parsed: {total_sites}")
+    print(f"  Generated allele rows: {len(df)}")
+    print(f"  Unique samples represented: {df['Sample ID (Raw)'].nunique()}")
+    return df
 
-def create_integrated_spreadsheet(loci_json, vcf_file, output_file):
-    """Main function to orchestrate data loading, parsing, and saving."""
-    try:
-        # 1. Load Data
-        loci_map = load_loci_data(loci_json)
-        
-        # 2. Load Sample Demographics
-        sample_map = load_all_sample_info(SAMPLE_SUMMARY_CSV)
-        
-        # 3. Parse VCF and Merge Data
-        df_integrated = parse_vcf_and_merge(vcf_file, loci_map, sample_map)
+# ---------- Orchestration ----------
+def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str,
+                                  kgp_txt: str, output_file: str, drop_samples: List[str]) -> Optional[str]:
+    loci_map = load_loci_data(loci_json)
+    sample_map_csv = load_all_sample_info(sample_csv)
+    sample_map_1kgp = load_1kgp_sample_info(kgp_txt)
 
-        if df_integrated.empty:
-            print("No data was processed from the VCF file. Skipping Excel creation.")
-            return
+    df_integrated = parse_vcf_and_merge(vcf_file, loci_map, sample_map_csv, sample_map_1kgp, drop_samples)
+    if df_integrated.empty:
+        print("No data parsed; skipping Excel write.")
+        return None
 
-        # --- Final Formatting and Saving ---
-        column_rename_map = {
-            'Chromosome': 'Chromosome', 'Position (Start)': 'Position', 'Gene': 'Gene', 
-            'Disease': 'Disease', 'Disease ID': 'Disease ID', 'Motif': 'Motif', 
-            'Motif length': 'Motif length', 'Allele Length (bp)': 'Allele length', 
-            'Repeat count (Calc)': 'Repeat count', 'Benign min': 'Benign min', 
-            'Benign max': 'Benign max', 'Pathogenic min': 'Pathogenic min', 
-            'Pathogenic max': 'Pathogenic max', 'Inheritance': 'Inheritance',
-            'Sample ID (Raw)': 'Sample ID', 'Sample ID (Cleaned)': 'Sample ID Cleaned', 
-            'SubPop': 'SubPop', 'SuperPop': 'SuperPop', 'Sex': 'Sex',
-            'Flank Motif Structure': 'Flank Motif',
-            'Pore': 'Pore'
-        }
-        
-        columns_to_select = [col for col in column_rename_map.keys() if col in df_integrated.columns]
-        
-        df_final = df_integrated[columns_to_select].rename(columns=column_rename_map)
-        desired_order = list(column_rename_map.values())
-        df_final = df_final[desired_order]
-        
-        # Save to Excel
-        with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
-            df_final.to_excel(writer, index=False, sheet_name='Integrated Alleles')
-        
-        print(f"\nSuccess! Integrated spreadsheet saved to '{output_file}'.")
-        return output_file
+    column_rename_map = {
+        'Chromosome': 'Chromosome',
+        'Position (Start)': 'Position',
+        'Gene': 'Gene',
+        'Disease': 'Disease',
+        'Disease ID': 'Disease ID',
+        'Motif': 'Motif',
+        'Motif length': 'Motif length',
+        'Allele Length (bp)': 'Allele length',
+        'Repeat count (Calc)': 'Repeat count',
+        'Haplotype': 'Haplotype',
+        'Benign min': 'Benign min',
+        'Benign max': 'Benign max',
+        'Pathogenic min': 'Pathogenic min',
+        'Pathogenic max': 'Pathogenic max',
+        'Inheritance': 'Inheritance',
+        'Sample ID (Raw)': 'Sample ID',
+        'Sample ID (Cleaned)': 'Sample ID Cleaned',
+        'SubPop': 'SubPop',
+        'SuperPop': 'SuperPop',
+        'Sex': 'Sex',
+        'Flank Motif Structure': 'Flank Motif',
+        'Pore': 'Pore',
+        'QC Flag': 'QC Flag',
+        'QC Reasons': 'QC Reasons',
+    }
 
-    except FileNotFoundError as e:
-        print(f"Error: One of the input files was not found: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
+    present = [c for c in column_rename_map if c in df_integrated.columns]
+    df_final = df_integrated[present].rename(columns=column_rename_map)
 
-# --- Execution ---
-def main(args=None):
-    if args is None:
-        args = parse_args()
+    desired_order = [
+        'Chromosome', 'Position', 'Gene', 'Disease', 'Disease ID',
+        'Motif', 'Motif length', 'Allele length', 'Repeat count',
+        'Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max',
+        'Inheritance', 'Haplotype', 'Sample ID', 'Sample ID Cleaned',
+        'SubPop', 'SuperPop', 'Sex', 'Flank Motif', 'Pore',
+        'QC Flag', 'QC Reasons'
+    ]
+    df_final = df_final.reindex(columns=desired_order)
 
-    # Allow CLI overrides of the module-level SAMPLE_SUMMARY_CSV
-    global SAMPLE_SUMMARY_CSV
-    SAMPLE_SUMMARY_CSV = args.sample_csv
+    # Write "NaN" strings to Excel for visibility (keep numeric NaN in memory)
+    for col in ['Allele length', 'Repeat count']:
+        if col in df_final.columns:
+            df_final[col] = df_final[col].where(pd.notna(df_final[col]), 'NaN')
 
-    result = create_integrated_spreadsheet(args.loci_json, args.vcf, args.output)
-    if result:
-        print(f"Created spreadsheet: {result}")
+    os.makedirs(os.path.dirname(output_file), exist_ok=True)
+    with pd.ExcelWriter(output_file, engine='openpyxl') as writer:
+        df_final.to_excel(writer, index=False, sheet_name='Integrated Alleles')
+
+    print(f"\nSuccess! Integrated spreadsheet saved to '{output_file}'.")
+    return output_file
+
+# ---------- Main ----------
+def main():
+    args = parse_args()
+    out = create_integrated_spreadsheet(
+        loci_json=args.loci_json,
+        vcf_file=args.vcf,
+        sample_csv=args.sample_csv,
+        kgp_txt=args.kgp_sample_info,
+        output_file=args.output,
+        drop_samples=args.drop_sample,
+    )
+    if out:
+        print(f"Created spreadsheet: {out}")
     else:
         print("No spreadsheet created.")
-
 
 if __name__ == "__main__":
     main()
