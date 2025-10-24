@@ -1,11 +1,27 @@
 """
----------------------------------------------
- Script: Creating Master Allele Spreadsheet
- (fixed AL handling + backfill SubPop/SuperPop/Sex from 1kGP when Unknown)
- + QC: mark <=0 as NaN and write "NaN" in Excel for Allele length & Repeat count
- + Add Haplotype column (1 or 2)
- + Append QC reason 'inheritance_AD_and_AR' when Inheritance contains both AD and AR
----------------------------------------------
+Master Allele Spreadsheet Creator
+
+Purpose:
+    Parse a VCF of STR loci (gzipped or plain), merge locus metadata and sample
+    demographics (CSV + 1kGP), and produce an integrated per-haplotype Excel
+    spreadsheet with allele lengths, repeat counts and QC flags.
+
+Key behaviors / features:
+    - Reads loci JSON, sample summary CSV (header row 2), and 1kGP sample-info (tab-delim).
+    - Parses VCF GT and per-haplotype AL fields; supports REF (0) and ALT alleles.
+    - Converts missing or <=0 AL values to NaN and records QC reasons.
+    - Derives motif length from loci metadata, info.MOTIF, or REF sequence.
+    - Calculates repeat count = allele_length / motif_length (rounded to 2 decimals).
+    - Emits one row per non-missing haplotype with Haplotype (1/2), Sample ID raw/cleaned,
+      demographics (SubPop/SuperPop/Sex/Pore), locus annotations, QC Flag and QC Reasons.
+    - Backfills SubPop/SuperPop/Sex from 1kGP data when CSV values are unknown/missing.
+    - Flags loci whose Inheritance contains both AD and AR with QC reason
+      'inheritance_AD_and_AR'.
+    - Supports --drop-sample (repeatable) to skip exact VCF header sample names.
+    - Writes an Excel file (sheet 'Integrated Alleles'). Numeric NaNs for
+      Allele length and Repeat count are written as the string "NaN" for visibility.
+    - Expects VCF sample names often beginning with HG*, GM*, NA*; a cleaning helper
+      strips common suffixes to match sample CSV / 1kGP keys.
 """
 
 import argparse
