@@ -24,7 +24,7 @@ OUTPUT_ROOT = (
 )
 OUTPUT_DIR_PNG  = OUTPUT_ROOT / "png"
 OUTPUT_DIR_HTML = OUTPUT_ROOT / "html"
-TEST_OUTPUT_DIR = OUTPUT_ROOT / "test_outputs"  # <- sibling to png/ and html/
+TEST_OUTPUT_DIR = OUTPUT_ROOT / "test_outputs"
 
 # Ensure the standard output dirs exist up front
 OUTPUT_DIR_PNG.mkdir(parents=True, exist_ok=True)
@@ -36,7 +36,7 @@ def ENSURE_DIR(*parts):
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-TEST_MODE_DEFAULT = True
+TEST_MODE_DEFAULT = False
 TEST_LIMIT_DEFAULT = 3
 SAVE_TEST_OUTPUTS_DEFAULT = True
 
