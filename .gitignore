@@ -10,7 +10,7 @@
 *.vcf.gz
 *.tbi
 *.png
-*.html
+# *.html
 
 # Ignore contents of Data, Results, and the config.py by default
 Data/**
