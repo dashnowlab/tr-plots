@@ -312,24 +312,40 @@ def main(args=None):
             )
 
         # --- Save / Preview ---
-        safe_gene = re.sub(r'[\\/]', '_', gene)
+        # safe short gene string for filenames
+        safe_gene = re.sub(r'[^A-Za-z0-9_-]+', '_', str(gene) or "gene")[:50]
         html_path = os.path.join(OUTPUT_HTML_DIR, f"{safe_gene}_{chrom}_{pos}_allele_dist.html")
         png_path  = os.path.join(OUTPUT_PNG_DIR,  f"{safe_gene}_{chrom}_{pos}_allele_dist.png")
 
         if TEST_MODE:
-            fig.show()
+            fig.show(renderer="browser")
             if SAVE_TEST_OUTPUTS:
                 fig.write_html(html_path)
+                # temporarily shorten the figure title to avoid kaleido temp-file name limits
+                orig_title = None
                 try:
+                    if getattr(fig.layout, "title", None) and getattr(fig.layout.title, "text", None):
+                        orig_title = fig.layout.title.text
+                        fig.update_layout(title_text=f"{safe_gene}_{chrom}_{pos}")
                     fig.write_image(png_path, format="png", width=900, height=500, scale=2)
                 except Exception as e:
                     print(f"PNG export failed for {png_path}: {e} (HTML saved)")
+                finally:
+                    if orig_title is not None:
+                        fig.update_layout(title_text=orig_title)
         else:
             fig.write_html(html_path)
+            orig_title = None
             try:
+                if getattr(fig.layout, "title", None) and getattr(fig.layout.title, "text", None):
+                    orig_title = fig.layout.title.text
+                    fig.update_layout(title_text=f"{safe_gene}_{chrom}_{pos}")
                 fig.write_image(png_path, format="png", width=900, height=500, scale=2)
             except Exception as e:
                 print(f"PNG export failed for {png_path}: {e} (HTML saved)")
+            finally:
+                if orig_title is not None:
+                    fig.update_layout(title_text=orig_title)
 
     # --- Finished ---
     if TEST_MODE:
