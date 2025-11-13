@@ -34,7 +34,7 @@ VCF_FILE = (
 LOCI_JSON = BASE_DIR / "data" / "other_data" / "strchive-loci.json"
 
 # Output root directory
-OUT_ROOT = BASE_DIR / "results" / "motif_counts_pathogenic_ref"
+OUT_ROOT = BASE_DIR / "results" / "motif_counts_pathogenic_ref_v3"
 OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 # ====== Optional: pandas for Excel output ======
@@ -93,11 +93,23 @@ def safe_float(x: str) -> Optional[float]:
         return None
 
 
-def write_table(out_prefix: Path, name: str, rows: List[Dict[str, object]]):
-    csv_path = out_prefix.with_suffix(f".{name}.csv")
+def write_table(out_prefix: Path, rows: List[Dict[str, object]], name: Optional[str] = None):
+    """
+    Write rows to CSV and (optionally) XLSX.
+    If `name` is provided, files are written as out_prefix.{name}.csv/.xlsx
+    Otherwise files are written as out_prefix.csv/.xlsx
+    """
     if not rows:
         return
+
     headers = list(rows[0].keys())
+    if name:
+        csv_path = out_prefix.with_suffix(f".{name}.csv")
+        xlsx_path = out_prefix.with_suffix(f".{name}.xlsx")
+    else:
+        csv_path = out_prefix.with_suffix(".csv")
+        xlsx_path = out_prefix.with_suffix(".xlsx")
+
     with open(csv_path, "w") as f:
         f.write(",".join(headers) + "\n")
         for r in rows:
@@ -105,7 +117,7 @@ def write_table(out_prefix: Path, name: str, rows: List[Dict[str, object]]):
 
     if pd is not None:
         try:
-            pd.DataFrame(rows).to_excel(out_prefix.with_suffix(f".{name}.xlsx"), index=False)
+            pd.DataFrame(rows).to_excel(xlsx_path, index=False)
         except Exception:
             pass
 
@@ -249,7 +261,7 @@ def process_vcf(
     vcf_path: Path,
     out_prefix: Path,
     loci_json: Optional[Path] = None,
-    per_sample: bool = False,
+    per_sample: bool = True,   # default -> generate one row per sample allele (2 alleles/sample)
     pathogenic_threshold: Optional[float] = None,
 ):
     # Load JSON motif map
@@ -316,59 +328,140 @@ def process_vcf(
             ACs = info.get("AC", "").split(",") if "AC" in info else []
             alts = ALT.split(",") if ALT else []
 
-            # --- REF allele ---
-            allele_rows.append({
-                "CHROM": CHROM,
-                "POS": POS,
-                "GENE": gene,
-                "Disease": disease,
-                "AlleleType": "REF",
-                "AlleleSeq": REF,
-                "Motif": motif,
-                "MotifLen": motif_len,
-                "MotifSource": motif_source,
-                "AlleleLen": len(REF),
-                "ApproxRepeatCount": (len(REF) / motif_len) if motif_len else None,
-                "PureCount": full_pure_count(REF, motif) if motif_len else 0,
-                "MaxMotifRun": max_consecutive_motif_run(REF, motif) if motif_len else 0,
-                "IsPure": (full_pure_count(REF, motif) > 0) if motif_len else False,
-                "AC": "",
-                "AN": AN,
-            })
+            # If per_sample requested, expand to one row per sample allele (diploid -> ~2 * n_samples rows)
+            if per_sample and samples and sample_data:
+                fmt_keys = format_str.split(':') if format_str else []
+                for si, sd in enumerate(sample_data):
+                    sample_name = samples[si] if si < len(samples) else f"sample_{si}"
+                    vals = sd.split(':') if sd else []
+                    samp_map = dict(zip(fmt_keys, vals))
 
-            # --- ALT alleles ---
-            for i, alt in enumerate(alts):
+                    gt = samp_map.get("GT", "") or samp_map.get("GQ", "")  # prefer GT; fallback harmless
+                    # normalize GT delimiters
+                    gt = gt.replace("|", "/")
+                    alleles_idx = gt.split("/") if gt else []
+                    # if no GT, try to fall back to AL or other allele-level field; otherwise skip
+                    if not alleles_idx or alleles_idx == ['.']:
+                        # try AL (allele lengths) if present as single values per sample (comma/semicolon separated)
+                        al_field = samp_map.get("AL") or samp_map.get("ALLELE_LENGTH") or ""
+                        al_values = re.split(r"[,;]", al_field) if al_field else []
+                        if al_values:
+                            # create one row per reported AL (treat as haplotypes)
+                            for h_idx, alv in enumerate(al_values, start=1):
+                                try:
+                                    allele_len = int(alv)
+                                except Exception:
+                                    allele_len = None
+                                repeat_count = (allele_len / motif_len) if (allele_len and motif_len) else None
+                                allele_rows.append({
+                                    "CHROM": CHROM,
+                                    "POS": POS,
+                                    "GENE": gene,
+                                    "Disease": disease,
+                                    "Sample": sample_name,
+                                    "Haplotype": h_idx,
+                                    "AlleleSeq": "",
+                                    "AlleleLen": allele_len,
+                                    "RepeatCount": repeat_count,
+                                    "Motif": motif,
+                                    "MotifLen": motif_len
+                                })
+                        # nothing to do for this sample
+                        continue
+
+                    # iterate allele indices from GT (one row per allele)
+                    for h_idx, aidx in enumerate(alleles_idx, start=1):
+                        if aidx in ('.', ''):
+                            continue
+                        try:
+                            ai = int(aidx)
+                        except Exception:
+                            continue
+                        if ai == 0:
+                            seq = REF
+                        else:
+                            alt_index = ai - 1
+                            seq = alts[alt_index] if alt_index < len(alts) else ""
+
+                        allele_len = len(seq) if seq else None
+                        # if sample AL field exists and provides length for this haplotype, prefer it
+                        if "AL" in samp_map and samp_map["AL"]:
+                            al_vals = re.split(r"[,;]", samp_map["AL"])
+                            if len(al_vals) >= h_idx:
+                                try:
+                                    allele_len = int(al_vals[h_idx - 1])
+                                except Exception:
+                                    pass
+
+                        repeat_count = (allele_len / motif_len) if (allele_len and motif_len) else None
+                        allele_rows.append({
+                            "CHROM": CHROM,
+                            "POS": POS,
+                            "GENE": gene,
+                            "Disease": disease,
+                            "Sample": sample_name,
+                            "Haplotype": h_idx,
+                            "AlleleSeq": seq,
+                            "AlleleLen": allele_len,
+                            "RepeatCount": repeat_count,
+                            "Motif": motif,
+                            "MotifLen": motif_len,
+                            "MotifSource": motif_source,
+                        })
+            else:
+                # fallback: keep locus-level REF+ALT summary rows (previous behavior)
                 allele_rows.append({
                     "CHROM": CHROM,
                     "POS": POS,
                     "GENE": gene,
                     "Disease": disease,
-                    "AlleleType": f"ALT{i+1}",
-                    "AlleleSeq": alt,
+                    "AlleleType": "REF",
+                    "AlleleSeq": REF,
                     "Motif": motif,
                     "MotifLen": motif_len,
                     "MotifSource": motif_source,
-                    "AlleleLen": len(alt),
-                    "ApproxRepeatCount": (len(alt) / motif_len) if motif_len else None,
-                    "PureCount": full_pure_count(alt, motif) if motif_len else 0,
-                    "MaxMotifRun": max_consecutive_motif_run(alt, motif) if motif_len else 0,
-                    "IsPure": (full_pure_count(alt, motif) > 0) if motif_len else False,
-                    "AC": ACs[i] if i < len(ACs) else "",
+                    "AlleleLen": len(REF),
+                    "ApproxRepeatCount": (len(REF) / motif_len) if motif_len else None,
+                    "PureCount": full_pure_count(REF, motif) if motif_len else 0,
+                    "MaxMotifRun": max_consecutive_motif_run(REF, motif) if motif_len else 0,
+                    "IsPure": (full_pure_count(REF, motif) > 0) if motif_len else False,
+                    "AC": "",
                     "AN": AN,
                 })
 
+                for i, alt in enumerate(alts):
+                    allele_rows.append({
+                        "CHROM": CHROM,
+                        "POS": POS,
+                        "GENE": gene,
+                        "Disease": disease,
+                        "AlleleType": f"ALT{i+1}",
+                        "AlleleSeq": alt,
+                        "Path Ref Motif": motif,
+                        "MotifLen": motif_len,
+                        "MotifSource": motif_source,
+                        "AlleleLen": len(alt),
+                        "ApproxRepeatCount": (len(alt) / motif_len) if motif_len else None,
+                        "PureCount": full_pure_count(alt, motif) if motif_len else 0,
+                        "MaxMotifRun": max_consecutive_motif_run(alt, motif) if motif_len else 0,
+                        "IsPure": (full_pure_count(alt, motif) > 0) if motif_len else False,
+                        "AC": ACs[i] if i < len(ACs) else "",
+                        "AN": AN,
+                    })
+
     # --- Write output ---
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
-    write_table(out_prefix, "alleles", allele_rows)
-    print(f"✅ Saved allele-level motif data to: {out_prefix}.alleles.csv/.xlsx")
-
+    # write without the ".alleles" suffix and use the CLI-provided prefix.
+    write_table(out_prefix, allele_rows, name=None)
+    print(f"✅ Saved allele-level motif data to: {out_prefix}.csv/.xlsx")
 
 # ---------- CLI ----------
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute motif-aware metrics from STR VCF (preferring JSON pathogenic motifs).")
     parser.add_argument("--vcf", default=str(VCF_FILE), help="Path to VCF (.vcf or .vcf.gz)")
     parser.add_argument("--loci-json", default=str(LOCI_JSON), help="Path to loci JSON with pathogenic_motif_gene_orientation")
-    parser.add_argument("--out", default=str(OUT_ROOT / "motif_metrics"), help="Output file prefix")
+    parser.add_argument("--out", default=str(OUT_ROOT / "motif_metrics_pathogenic_ref"), help="Output file prefix")
+    parser.add_argument("--per-sample", action="store_true", help="Expand output to one row per sample allele (default: enabled)")
     args = parser.parse_args()
 
-    process_vcf(Path(args.vcf), Path(args.out), Path(args.loci_json))
+    process_vcf(Path(args.vcf), Path(args.out), Path(args.loci_json), per_sample=True)

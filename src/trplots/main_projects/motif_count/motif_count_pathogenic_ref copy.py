@@ -34,7 +34,7 @@ VCF_FILE = (
 LOCI_JSON = BASE_DIR / "data" / "other_data" / "strchive-loci.json"
 
 # Output root directory
-OUT_ROOT = BASE_DIR / "results" / "motif_counts_pathogenic_gene"
+OUT_ROOT = BASE_DIR / "results" / "motif_counts_pathogenic_ref"
 OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 # ====== Optional: pandas for Excel output ======
@@ -95,7 +95,7 @@ def safe_float(x: str) -> Optional[float]:
 
 def write_table(out_prefix: Path, rows: List[Dict[str, object]], name: Optional[str] = None):
     """
-    Write rows to CSV and XLSX.
+    Write rows to CSV and (optionally) XLSX.
     If `name` is provided, files are written as out_prefix.{name}.csv/.xlsx
     Otherwise files are written as out_prefix.csv/.xlsx
     """
@@ -110,7 +110,7 @@ def write_table(out_prefix: Path, rows: List[Dict[str, object]], name: Optional[
         csv_path = out_prefix.with_suffix(".csv")
         xlsx_path = out_prefix.with_suffix(".xlsx")
 
-    with open(csv_path, "w", encoding="utf-8") as f:
+    with open(csv_path, "w") as f:
         f.write(",".join(headers) + "\n")
         for r in rows:
             f.write(",".join(str(r.get(h, "")) for h in headers) + "\n")
@@ -142,7 +142,7 @@ def load_pathogenic_motif_map(json_path: Path) -> Dict[str, str]:
     """
     Build {GENE -> motif} map from loci JSON.
 
-    Looks for key 'pathogenic_motif_gene_orientation' (list[str] or str).
+    Looks for key 'pathogenic_motif_reference_orientation' (list[str] or str).
     If multiple motifs present, pick the longest (usually the clinically relevant expansion unit).
     Traverses lists/dicts recursively so it’s resilient to schema differences.
     """
@@ -159,8 +159,8 @@ def load_pathogenic_motif_map(json_path: Path) -> Dict[str, str]:
             gene_here = _extract_gene(node) or current_gene
 
             # Primary key we care about
-            if "pathogenic_motif_gene_orientation" in node:
-                raw = node["pathogenic_motif_gene_orientation"]
+            if "pathogenic_motif_reference_orientation" in node:
+                raw = node["pathogenic_motif_reference_orientation"]
                 motifs: List[str] = []
                 if isinstance(raw, list):
                     motifs = [_clean_motif(x) for x in raw if isinstance(x, str)]
@@ -357,7 +357,7 @@ def process_vcf(
                     "Disease": disease,
                     "AlleleType": f"ALT{i+1}",
                     "AlleleSeq": alt,
-                    "Path Gene Motif": motif,
+                    "Path Ref Motif": motif,
                     "MotifLen": motif_len,
                     "MotifSource": motif_source,
                     "AlleleLen": len(alt),
@@ -380,7 +380,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Compute motif-aware metrics from STR VCF (preferring JSON pathogenic motifs).")
     parser.add_argument("--vcf", default=str(VCF_FILE), help="Path to VCF (.vcf or .vcf.gz)")
     parser.add_argument("--loci-json", default=str(LOCI_JSON), help="Path to loci JSON with pathogenic_motif_gene_orientation")
-    parser.add_argument("--out", default=str(OUT_ROOT / "motif_metrics_pathogenic_gene"), help="Output file prefix")
+    parser.add_argument("--out", default=str(OUT_ROOT / "motif_metrics_pathogenic_ref"), help="Output file prefix")
     args = parser.parse_args()
 
     process_vcf(Path(args.vcf), Path(args.out), Path(args.loci_json))
