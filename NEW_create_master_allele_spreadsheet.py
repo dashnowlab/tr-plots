@@ -39,7 +39,7 @@ VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/
 LOCI_JSON = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json'
 SAMPLE_SUMMARY_CSV = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1kgp_ont_500_summary_-_sheet1.csv'
 KGP_SAMPLE_INFO = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1000_genomes_20130606_sample_info.txt'
-OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/master_allele_spreadsheet_pathogenic_ref_motif_v2.xlsx'
+OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/master_allele_spreadsheet_pathogenic_ref_motif_v4.xlsx'
 
 # ---------- CLI ----------
 def parse_args():
@@ -65,34 +65,29 @@ def load_loci_data(json_file: str) -> Dict[str, dict]:
         if flank_motif_value is not None and not isinstance(flank_motif_value, str):
             flank_motif_value = str(flank_motif_value)
 
-        # Prefer pathogenic motif (reference orientation) when available.
-        # Accept string or list; if list choose the longest (most specific) motif.
-        raw_pathogenic = (
-            entry.get('pathogenic_motif_reference_orientation')
-            or entry.get('pathogenic_motif_gene_orientation')
-            or entry.get('reference_motif_reference_orientation')
-        )
-        # Normalize and collect all candidate pathogenic motifs (may be multiple).
+        # Collect pathogenic reference motifs (may be string or list). Normalize and deduplicate.
+        raw_pathogenic = entry.get('pathogenic_motif_reference_orientation') \
+                         or entry.get('pathogenic_motif_gene_orientation') \
+                         or entry.get('reference_motif_reference_orientation')
         pathogenic_motifs: List[str] = []
         if isinstance(raw_pathogenic, list):
             for m in raw_pathogenic:
                 if isinstance(m, str) and m.strip():
-                    pathogenic_motifs.append(re.sub(r"\s+", "", m).upper())
+                    cleaned = re.sub(r"\s+", "", m).upper()
+                    pathogenic_motifs.append(cleaned)
         elif isinstance(raw_pathogenic, str) and raw_pathogenic.strip():
             pathogenic_motifs.append(re.sub(r"\s+", "", raw_pathogenic).upper())
-        # Deduplicate while preserving order
-        seen_m = set()
-        pathogenic_motifs = [m for m in pathogenic_motifs if not (m in seen_m or seen_m.add(m))]
-        # fallback: if no pathogenic motifs, leave list empty (we may use motif_from_info later)
+        # dedupe while preserving order
+        seen = set()
+        pathogenic_motifs = [m for m in pathogenic_motifs if not (m in seen or seen.add(m))]
 
         entry_data = {
             'Gene': entry.get('gene'),
             'Disease': entry.get('disease'),
             'Disease ID': entry.get('disease_id'),
-            # keep first motif for backward compatibility, and store full list
+            # keep first motif for backwards compatibility; store full list under 'Pathogenic Motifs'
             'Motif': pathogenic_motifs[0] if pathogenic_motifs else None,
             'Pathogenic Motifs': pathogenic_motifs,
-            # original 'Motif length' kept as locus annotation (may be None)
             'Motif length': entry.get('motif_len'),
             'Benign min': entry.get('benign_min'),
             'Benign max': entry.get('benign_max'),
@@ -140,7 +135,7 @@ def load_all_sample_info(summary_csv_file: str) -> Dict[str, dict]:
 # --- 1000G population → superpopulation map ---
 _POP_TO_SUPERPOP = {
     # AFR
-    'YRI': 'AFR', 'LWK': 'AFR', 'GWD': 'AFR',
+    'YRI': 'AFR', 'LWK': 'AFR', 'GWD': 'AFR', 'MSL': 'AFR', 'ESN': 'AFR', 'ACB': 'AFR', 'ASW': 'AFR',
     # AMR
     'CLM': 'AMR', 'MXL': 'AMR', 'PEL': 'AMR', 'PUR': 'AMR',
     # EAS
@@ -186,8 +181,9 @@ def load_1kgp_sample_info(kgp_txt_path: str) -> Dict[str, dict]:
     df['SubPop_from_1kGP'] = df['Population']
     df['Sex_from_1kGP'] = df['Gender'].apply(_norm_sex)
 
-    df_out = df[['Sample', 'SubPop_from_1kGP', 'SuperPop_from_1kGP', 'Sex_from_1kGP']].drop_duplicates('Sample').set_index('Sample')
-    result = df_out.to_dict('index')
+    df_out = df[['Sample', 'SubPop_from_1kGP', 'SuperPop_from_1kGP', 'Sex_from_1kGP']]
+    # index by Sample to produce mapping {Sample: {...}}
+    result = df_out.set_index('Sample').to_dict('index')
     print(f"1kGP entries: {len(result)}")
     return result
 
@@ -382,8 +378,8 @@ def parse_vcf_and_merge(
                     if inheritance_ambig:
                         qc_reasons.append('inheritance_AD_and_AR')
 
-                    # Determine motif candidates to expand rows: use Pathogenic Motifs if present,
-                    # otherwise fall back to locus 'Motif' (single) or motif from INFO.
+                    # Determine motif candidates: use all pathogenic reference motifs when present,
+                    # otherwise fall back to locus 'Motif' or VCF INFO.MOTIF. Emit one row per motif.
                     motif_candidates = locus_data.get('Pathogenic Motifs') or []
                     if not motif_candidates:
                         if locus_data.get('Motif'):
@@ -391,26 +387,73 @@ def parse_vcf_and_merge(
                         elif motif_from_info:
                             motif_candidates = [re.sub(r"\s+", "", str(motif_from_info)).upper()]
                         else:
-                            motif_candidates = []
+                            motif_candidates = [None]
 
-                    # If no motif candidates, still emit a row with motif empty (preserve behavior)
-                    if not motif_candidates:
-                        motif_candidates = [None]
+                    # Base QC reasons copied per motif-row
+                    base_qc = list(qc_reasons)
 
                     for motif_val in motif_candidates:
-                        # compute per-row motif length (prefer explicit motif string)
+                        # compute motif length for this motif candidate
                         if motif_val:
-                            motif_len_used = float(len(motif_val))
+                            try:
+                                motif_len_used = float(len(motif_val))
+                            except Exception:
+                                motif_len_used = float('nan')
                         else:
-                            motif_len_used = motif_len  # previous locus-level fallback
+                            motif_len_used = motif_len
 
-                        # recompute repeat_count based on motif_len_used if needed
-                        if motif_len_used and isinstance(motif_len_used, (int, float)) and motif_len_used > 0:
-                            repeat_count_used = (round(allele_len / motif_len_used, 2)
-                                                 if (isinstance(allele_len, (int, float)) and allele_len > 0)
-                                                 else float('nan'))
+                        # compute repeat count for this motif candidate
+                        if (isinstance(motif_len_used, (int, float)) and motif_len_used > 0) and \
+                           (isinstance(allele_len, (int, float)) and allele_len > 0):
+                            repeat_count_used = round(allele_len / motif_len_used, 2)
                         else:
                             repeat_count_used = float('nan')
+
+                        # --- Is Pathogenic? --- 
+                        # Determine pathogenicity based on locus pathogenic min/max (if present)
+                        pmin = locus_data.get('Pathogenic min')
+                        pmax = locus_data.get('Pathogenic max')
+                        try:
+                            pmin_val = float(pmin) if pmin is not None else None
+                        except Exception:
+                            pmin_val = None
+                        try:
+                            pmax_val = float(pmax) if pmax is not None else None
+                        except Exception:
+                            pmax_val = None
+
+                        is_pathogenic = 'No'
+                        # treat numeric repeat_count_used as pathogenic check candidate
+                        if isinstance(repeat_count_used, (int, float)) and not pd.isna(repeat_count_used):
+                            gene_sym = (locus_data.get('Gene') or '').strip().upper()
+                            # Special case for VWA1: pathogenic only when repeat count is exactly 1 or 3
+                            if gene_sym == 'VWA1':
+                                try:
+                                    if float(repeat_count_used).is_integer() and int(repeat_count_used) in (1, 3):
+                                        is_pathogenic = 'Yes'
+                                    else:
+                                        is_pathogenic = 'No'
+                                except Exception:
+                                    is_pathogenic = 'No'
+                            else:
+                                if pmin_val is not None:
+                                    if pmax_val is not None:
+                                        if (repeat_count_used >= pmin_val) and (repeat_count_used <= pmax_val):
+                                            is_pathogenic = 'Yes'
+                                    else:
+                                        if repeat_count_used >= pmin_val:
+                                            is_pathogenic = 'Yes'
+                                else:
+                                    # if no minimum provided but max provided, use upper bound
+                                    if pmax_val is not None and repeat_count_used <= pmax_val:
+                                        is_pathogenic = 'Yes'
+                        # -----------------------
+
+                        # per-row QC reasons (copy base and add motif-specific reason if needed)
+                        row_qc = list(base_qc)
+                        if not (isinstance(motif_len_used, (int, float)) and motif_len_used > 0):
+                            if 'motif_len_le0_or_missing' not in row_qc:
+                                row_qc.append('motif_len_le0_or_missing')
 
                         allele_records.append({
                             'Chromosome': chrom.replace('chr', ''),
@@ -426,9 +469,10 @@ def parse_vcf_and_merge(
                             'Pathogenic min': locus_data['Pathogenic min'],
                             'Pathogenic max': locus_data['Pathogenic max'],
                             'Inheritance': inheritance_text,
-                            'Allele Length (bp)': allele_len,        # NaN when invalid
-                            'Repeat count (Calc)': repeat_count_used,     # NaN when invalid
-                            'Haplotype': hap_idx + 1,                # 1 or 2
+                            'Allele Length (bp)': allele_len,
+                            'Repeat count (Calc)': repeat_count_used,
+                            'Is Pathogenic': is_pathogenic,
+                            'Haplotype': hap_idx + 1,
                             'Sample ID (Raw)': sample_id_full,
                             'Sample ID (Cleaned)': sample_id_clean,
                             'SubPop': demo.get('SubPop', 'Unknown'),
@@ -436,8 +480,8 @@ def parse_vcf_and_merge(
                             'Sex': demo.get('Sex', 'Unknown'),
                             'Pore': demo.get('Pore', 'Unknown'),
                             # --- QC flags ---
-                            'QC Flag': 'Yes' if qc_reasons else '',
-                            'QC Reasons': ';'.join(qc_reasons) if qc_reasons else '',
+                            'QC Flag': 'Yes' if row_qc else '',
+                            'QC Reasons': ';'.join(row_qc) if row_qc else '',
                         })
 
     if not allele_records:
@@ -473,6 +517,7 @@ def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str
         'Motif length': 'Motif length',
         'Allele Length (bp)': 'Allele length',
         'Repeat count (Calc)': 'Repeat count',
+        'Is Pathogenic': 'Is Pathogenic',
         'Haplotype': 'Haplotype',
         'Benign min': 'Benign min',
         'Benign max': 'Benign max',
@@ -496,12 +541,16 @@ def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str
     desired_order = [
         'Chromosome', 'Position', 'Gene', 'Disease', 'Disease ID',
         'Motif', 'Motif length', 'Allele length', 'Repeat count',
+        'Is Pathogenic',
         'Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max',
         'Inheritance', 'Haplotype', 'Sample ID', 'Sample ID Cleaned',
         'SubPop', 'SuperPop', 'Sex', 'Flank Motif', 'Pore',
         'QC Flag', 'QC Reasons'
     ]
-    df_final = df_final.reindex(columns=desired_order)
+
+    # Only keep desired columns that are present
+    desired_present = [c for c in desired_order if c in df_final.columns]
+    df_final = df_final.reindex(columns=desired_present)
 
     # Write "NaN" strings to Excel for visibility (keep numeric NaN in memory)
     for col in ['Allele length', 'Repeat count']:

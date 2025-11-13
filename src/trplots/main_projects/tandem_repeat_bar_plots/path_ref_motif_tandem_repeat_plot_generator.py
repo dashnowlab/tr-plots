@@ -36,7 +36,7 @@ SAVE_TEST_OUTPUTS = False  # If True, also save files when TEST_MODE is on
 # --- File locations ---
 from trplots.config import VCF_PATH, JSON_PATH, OUTPUT_BASE  
 
-OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/Path_Ref_Motif_Tandem_Repeats_Plots")
+OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/Path_Ref_Motif_Tandem_Repeats_Plots_v2")
 
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
@@ -177,26 +177,60 @@ def main(args=None):
             continue
         matched_vcf_loci += 1
 
-        # Prefer the pathogenic reference motif; fall back to pathogenic_gene or reference motif
-        raw_motif = (
+        # Prefer pathogenic reference motif; fall back to pathogenic_gene or reference motif.
+        # If multiple motifs are provided, test each against the current VCF record's sample
+        # allele lengths and pick the motif that yields the highest total repeat count.
+        raw_motif_field = (
             matched_locus.get("pathogenic_motif_reference_orientation")
             or matched_locus.get("pathogenic_motif_gene_orientation")
             or matched_locus.get("reference_motif_reference_orientation")
         )
-        if isinstance(raw_motif, list):
-            candidates = [m for m in raw_motif if isinstance(m, str) and m.strip()]
-            motif_str = max(candidates, key=len) if candidates else ""
-        else:
-            motif_str = str(raw_motif or "")
 
-        # Normalize motif (remove whitespace, uppercase)
-        motif_str = re.sub(r"\s+", "", motif_str).upper()
-        if not motif_str:
+        # Collect candidate motif strings, normalized (remove whitespace, uppercase)
+        candidates = []
+        if isinstance(raw_motif_field, list):
+            for m in raw_motif_field:
+                if isinstance(m, str) and m.strip():
+                    candidates.append(re.sub(r"\s+", "", m).upper())
+        elif isinstance(raw_motif_field, str) and raw_motif_field.strip():
+            candidates.append(re.sub(r"\s+", "", raw_motif_field).upper())
+
+        if not candidates:
             print(f"Skip {chrom}:{pos} — empty pathogenic/reference motif")
             continue
+
+        # Compute total repeats across all sample allele lengths for a given motif
+        def total_repeats_for_motif(motif: str) -> int:
+            mlen = len(motif)
+            if mlen == 0:
+                return -1
+            total = 0
+            for sample in record.samples.values():
+                al_lengths = sample.get("AL")
+                if not al_lengths:
+                    continue
+                for length in al_lengths:
+                    if length is None:
+                        continue
+                    try:
+                        total += int(length) // mlen
+                    except Exception:
+                        continue
+            return total
+
+        # Evaluate candidates and pick best: highest total repeats, tie-break by longer motif
+        best = None
+        best_total = -1
+        for c in candidates:
+            t = total_repeats_for_motif(c)
+            if t > best_total or (t == best_total and (best is None or len(c) > len(best))):
+                best = c
+                best_total = t
+
+        motif_str = best or ""
         motif_length = len(motif_str)
         if motif_length == 0:
-            print(f"Skip {chrom}:{pos} — motif length 0")
+            print(f"Skip {chrom}:{pos} — motif length 0 after candidate selection")
             continue
 
         # Collect repeat counts across samples
