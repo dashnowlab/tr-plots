@@ -1,5 +1,7 @@
 import json
 import pandas as pd
+from pathlib import Path
+from trplots.config import OTHER_DATA
 
 # Path to your JSON file
 JSON_PATH = "/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json"
@@ -55,7 +57,8 @@ def main():
     print(df.head())
 
     # Save to CSV
-    output_excel = "loci_ref_vs_pathogenic_ref_motifs.xlsx"
+    output_excel = Path(OTHER_DATA) / "loci_ref_vs_pathogenic_ref_motifs.xlsx"
+    output_excel.parent.mkdir(parents=True, exist_ok=True)
     df.to_excel(output_excel, index=False)
     print(f"\nWrote {len(df)} rows to {output_excel}")
 
