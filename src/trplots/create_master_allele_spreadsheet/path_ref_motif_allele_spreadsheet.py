@@ -39,7 +39,7 @@ VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/
 LOCI_JSON = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json'
 SAMPLE_SUMMARY_CSV = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1kgp_ont_500_summary_-_sheet1.csv'
 KGP_SAMPLE_INFO = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1000_genomes_20130606_sample_info.txt'
-OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/master_allele_spreadsheet_pathogenic_ref_motif.xlsx'
+OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/path_ref_motif_allele_spreadsheet.xlsx'
 
 # ---------- CLI ----------
 def parse_args():
