@@ -11,7 +11,8 @@ Key behaviors / features:
     - Parses VCF GT and per-haplotype AL fields; supports REF (0) and ALT alleles.
     - Converts missing or <=0 AL values to NaN and records QC reasons.
     - Derives motif length from loci metadata, info.MOTIF, or REF sequence.
-    - Calculates repeat count = allele_length / motif_length (rounded to 2 decimals).
+    - Calculates repeat count as the longest pure, contiguous run of the motif within
+      the allele sequence (requires REF/ALT sequence).
     - Emits one row per non-missing haplotype with Haplotype (1/2), Sample ID raw/cleaned,
       demographics (SubPop/SuperPop/Sex/Pore), locus annotations, QC Flag and QC Reasons.
     - Backfills SubPop/SuperPop/Sex from 1kGP data when CSV values are unknown/missing.
@@ -39,7 +40,7 @@ VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/
 LOCI_JSON = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json'
 SAMPLE_SUMMARY_CSV = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1kgp_ont_500_summary_-_sheet1.csv'
 KGP_SAMPLE_INFO = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1000_genomes_20130606_sample_info.txt'
-OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/path_ref_motif_allele_spreadsheet.xlsx'
+OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet.xlsx'
 
 # ---------- CLI ----------
 def parse_args():
@@ -65,13 +66,9 @@ def load_loci_data(json_file: str) -> Dict[str, dict]:
         if flank_motif_value is not None and not isinstance(flank_motif_value, str):
             flank_motif_value = str(flank_motif_value)
 
-        # Prefer pathogenic motif (reference orientation) when available.
-        # Accept string or list; if list choose the longest (most specific) motif.
-        raw_pathogenic = (
-            entry.get('pathogenic_motif_reference_orientation')
-            or entry.get('pathogenic_motif_gene_orientation')
-            or entry.get('reference_motif_reference_orientation')
-        )
+        # ONLY collect pathogenic_motif_reference_orientation (do not fall back to gene/reference keys).
+        raw_pathogenic = entry.get('pathogenic_motif_reference_orientation')
+
         # Normalize and collect all candidate pathogenic motifs (may be multiple).
         pathogenic_motifs: List[str] = []
         if isinstance(raw_pathogenic, list):
@@ -83,14 +80,14 @@ def load_loci_data(json_file: str) -> Dict[str, dict]:
         # Deduplicate while preserving order
         seen_m = set()
         pathogenic_motifs = [m for m in pathogenic_motifs if not (m in seen_m or seen_m.add(m))]
-        # fallback: if no pathogenic motifs, leave list empty (we may use motif_from_info later)
-
+        # If no pathogenic motifs are present, keep list empty and mark Motif as 'Unknown'
+ 
         entry_data = {
             'Gene': entry.get('gene'),
             'Disease': entry.get('disease'),
             'Disease ID': entry.get('disease_id'),
-            # keep first motif for backward compatibility, and store full list
-            'Motif': pathogenic_motifs[0] if pathogenic_motifs else None,
+            # keep first motif for backward compatibility; if none present mark 'Unknown'
+            'Motif': pathogenic_motifs[0] if pathogenic_motifs else 'Unknown',
             'Pathogenic Motifs': pathogenic_motifs,
             # original 'Motif length' kept as locus annotation (may be None)
             'Motif length': entry.get('motif_len'),
@@ -195,12 +192,23 @@ def load_1kgp_sample_info(kgp_txt_path: str) -> Dict[str, dict]:
 _GT_SPLIT_RE = re.compile(r'[\/|]')
 
 def _calc_motif_len(locus_data: dict, motif_from_info: Optional[str], ref: str) -> float:
+    """
+    Determine motif length:
+      - Prefer explicit locus 'Motif' only when it's a real motif (not the sentinel 'Unknown')
+      - Otherwise use motif_from_info (INFO.MOTIF)
+      - Fallback to REF length
+    """
     motif_len = locus_data.get('Motif length')
     if isinstance(motif_len, (int, float)) and motif_len > 0:
         return float(motif_len)
-    motif_to_use = locus_data.get('Motif') or motif_from_info
-    if motif_to_use:
+
+    motif_to_use = locus_data.get('Motif')
+    if motif_to_use and str(motif_to_use).strip().upper() != 'UNKNOWN':
         return float(len(motif_to_use))
+
+    if motif_from_info:
+        return float(len(re.sub(r"\s+", "", str(motif_from_info)).upper()))
+
     return float(len(ref)) if ref else 0.0
 
 def _hap_lengths_from_AL(AL_field: str) -> List[Optional[int]]:
@@ -221,6 +229,32 @@ def _clean_sample_id(raw: str) -> str:
     m = re.match(r'^(HG\d+|GM\d+|NA\d+)', raw)
     return m.group(0) if m else raw.split('-')[0].split('_')[0]
 
+def _allele_sequence(allele_tok: str, ref: Optional[str], alt_alleles: List[str]) -> Optional[str]:
+    """
+    Return the allele sequence corresponding to an allele token from GT:
+      - '0' => REF
+      - '1','2',... => 1-based index into alt_alleles
+    Returns None for missing tokens ('.'), non-numeric tokens, or out-of-range indices.
+    """
+    if allele_tok is None:
+        return None
+    tok = str(allele_tok).strip()
+    if tok in ('.', ''):
+        return None
+    if tok == '0':
+        return ref
+    # numeric allele index expected (e.g. '1', '2')
+    m = re.match(r'^(\d+)$', tok)
+    if not m:
+        return None
+    idx = int(m.group(1)) - 1
+    if idx < 0 or idx >= len(alt_alleles):
+        return None
+    alt = alt_alleles[idx]
+    if alt is None or alt == '.':
+        return None
+    return alt
+
 # NEW: helper to detect ambiguous inheritance (AD and AR both present)
 _INHER_SPLIT_RE = re.compile(r'[,/;| ]+')
 def _has_both_ad_ar(inheritance_text: Optional[str]) -> bool:
@@ -228,6 +262,97 @@ def _has_both_ad_ar(inheritance_text: Optional[str]) -> bool:
         return False
     toks = [t.strip().lower() for t in _INHER_SPLIT_RE.split(str(inheritance_text)) if t.strip()]
     return ('ad' in toks) and ('ar' in toks)
+
+def _longest_pure_repeat_count(sequence: Optional[str], motif: Optional[str]) -> float:
+    """
+    Return the length (in repeat units) of the longest uninterrupted run of `motif`
+    within `sequence`. Treat 'N' in motif as a wildcard matching any single base.
+
+    Behavior changed:
+      - If sequence is None or motif is missing -> return NaN (cannot compute).
+      - If sequence present and motif present but no pure runs found -> return 0.0.
+    """
+    if sequence is None or motif is None:
+        return float('nan')
+    motif_clean = re.sub(r"\s+", "", str(motif)).upper()
+    if not motif_clean or motif_clean == 'UNKNOWN':
+        return float('nan')
+    seq_upper = str(sequence).upper()
+
+    # Build motif regex treating 'N' as single-base wildcard '.'
+    motif_regex = ''.join('.' if ch == 'N' else re.escape(ch) for ch in motif_clean)
+
+    # find longest contiguous run of (motif_regex)+
+    pat = re.compile(f"(?:{motif_regex})+", flags=re.IGNORECASE)
+    best = 0
+    for m in pat.finditer(seq_upper):
+        run = len(m.group(0)) // len(motif_clean)
+        if run > best:
+            best = run
+
+    # NOTE: return 0 when sequence valid but no runs found; return NaN only when compute impossible.
+    return float(best) if best > 0 else 0.0
+
+def _motif_metrics(sequence: Optional[str], motif: Optional[str]) -> dict:
+    """
+    Compute motif metrics from sequence.
+    Treat 'N' in motif as wildcard matching any base.
+    Returns dict with:
+      - longest_repeat_units: integer number of contiguous motif repeats (NaN if none)
+      - longest_repeat_bp: bp length of that longest run (NaN if none)
+      - total_occurrences: count of motif occurrences (overlapping allowed)
+      - has_interruptions: True if occurrences exist outside the longest pure run
+    """
+    if sequence is None or motif is None:
+        return {
+            "longest_repeat_units": float('nan'),
+            "longest_repeat_bp": float('nan'),
+            "total_occurrences": 0,
+            "has_interruptions": False
+        }
+    seq = str(sequence).upper()
+    mot = re.sub(r"\s+", "", str(motif)).upper()
+    if not mot or mot == "UNKNOWN":
+        return {
+            "longest_repeat_units": float('nan'),
+            "longest_repeat_bp": float('nan'),
+            "total_occurrences": 0,
+            "has_interruptions": False
+        }
+
+    # Build motif regex treating 'N' as single-base wildcard '.' and escaping other chars
+    motif_regex = ''.join('.' if ch == 'N' else re.escape(ch) for ch in mot)
+
+    # longest contiguous run: (motif_regex)+
+    run_pat = re.compile(r'(?:' + motif_regex + r')+', flags=re.IGNORECASE)
+    best_units = 0
+    best_span = (None, None)
+    for m in run_pat.finditer(seq):
+        run_bp = len(m.group(0))
+        units = run_bp // len(mot)
+        if units > best_units:
+            best_units = units
+            best_span = (m.start(), m.end())
+
+    # total occurrences (allow overlapping) using lookahead with motif_regex
+    occ_pat = re.compile(r'(?=(?:' + motif_regex + r'))', flags=re.IGNORECASE)
+    occ_positions = [m.start() for m in occ_pat.finditer(seq)]
+    total_occ = len(occ_positions)
+
+    has_interruptions = False
+    if best_units > 0 and total_occ > best_units:
+        # there are motif occurrences outside the longest pure run
+        has_interruptions = True
+    elif best_units == 0 and total_occ > 0:
+        # motif appears but never as >=1 full contiguous repeat unit => interruptions/no pure run
+        has_interruptions = True
+
+    return {
+        "longest_repeat_units": float(best_units) if best_units > 0 else float('nan'),
+        "longest_repeat_bp": float(best_units * len(mot)) if best_units > 0 else float('nan'),
+        "total_occurrences": total_occ,
+        "has_interruptions": has_interruptions
+    }
 
 # ---------- Core ----------
 def parse_vcf_and_merge(
@@ -254,6 +379,7 @@ def parse_vcf_and_merge(
     }
 
     total_sites = 0
+    skipped_loci = set()  # collect chr:pos for VCF records not present in loci JSON
     with opener(vcf_file, mode, encoding='utf-8') as f:
         for line in f:
             if line.startswith('##'):
@@ -280,6 +406,8 @@ def parse_vcf_and_merge(
             sample_fields = fields[9:]
             total_sites += 1
 
+            alt_alleles = alt_str.split(',') if alt_str and alt_str != '.' else []
+
             # INFO
             info_dict = {}
             for item in info_str.split(';'):
@@ -288,11 +416,15 @@ def parse_vcf_and_merge(
                     info_dict[k] = v
             motif_from_info = info_dict.get('MOTIF')
 
-            # locus mapping by id or chrom:pos
+            # locus mapping by id or chrom:pos -> only accept matches from loci_map
             locus_key_id = identifier if identifier and identifier != '.' else None
             locus_key_pos = f"{chrom.replace('chr', '')}:{pos}"
-            locus_data = loci_map.get(locus_key_id) or loci_map.get(locus_key_pos) or DEFAULT_LOCUS_DATA
-            if locus_data is DEFAULT_LOCUS_DATA and motif_from_info and not locus_data['Motif']:
+            locus_data = loci_map.get(locus_key_id) or loci_map.get(locus_key_pos)
+            if not locus_data:
+                # record and skip any VCF record not present in the JSON loci list
+                skipped_loci.add(f"{chrom}:{pos}")
+                continue
+            if locus_data and motif_from_info and not locus_data['Motif']:
                 locus_data = dict(DEFAULT_LOCUS_DATA)
                 locus_data['Motif'] = motif_from_info
 
@@ -353,6 +485,8 @@ def parse_vcf_and_merge(
                     if allele_tok == '.':
                         continue
 
+                    allele_seq = _allele_sequence(allele_tok, ref, alt_alleles)
+
                     # --- Compute allele length per haplotype with QC ---
                     qc_reasons = []
 
@@ -382,73 +516,164 @@ def parse_vcf_and_merge(
                     if inheritance_ambig:
                         qc_reasons.append('inheritance_AD_and_AR')
 
-                    # Determine motif candidates to expand rows: use Pathogenic Motifs if present,
-                    # otherwise fall back to locus 'Motif' (single) or motif from INFO.
-                    motif_candidates = locus_data.get('Pathogenic Motifs') or []
-                    if not motif_candidates:
-                        if locus_data.get('Motif'):
-                            motif_candidates = [locus_data.get('Motif')]
-                        elif motif_from_info:
-                            motif_candidates = [re.sub(r"\s+", "", str(motif_from_info)).upper()]
-                        else:
-                            motif_candidates = []
+                    # NEW: flag if benign range falls entirely within pathogenic range
+                    # (adds a QC reason so QC Flag becomes 'Yes' for that row)
+                    try:
+                        # Skip this QC for loci you've handled separately (e.g. VWA1)
+                        gene_name = (locus_data.get('Gene') or '').strip().upper()
+                        if gene_name != 'VWA1':
+                            bmin = locus_data.get('Benign min')
+                            bmax = locus_data.get('Benign max')
+                            pmin = locus_data.get('Pathogenic min')
+                            pmax = locus_data.get('Pathogenic max')
+                            bmin_v = float(bmin) if bmin is not None else None
+                            bmax_v = float(bmax) if bmax is not None else None
+                            pmin_v = float(pmin) if pmin is not None else None
+                            pmax_v = float(pmax) if pmax is not None else None
+                            if (bmin_v is not None and bmax_v is not None and
+                                    pmin_v is not None and pmax_v is not None):
+                                # check that benign interval lies entirely within pathogenic interval
+                                if (bmin_v >= pmin_v) and (bmax_v <= pmax_v):
+                                    qc_reasons.append('benign_range_within_pathogenic_range')
+                    except Exception:
+                        pass
 
-                    # If no motif candidates, still emit a row with motif empty (preserve behavior)
+                    # Determine motif candidates to expand rows: use ONLY Pathogenic Motifs (reference orientation).
+                    # otherwise fall back to locus 'Motif' (single) or motif from INFO.
+                    raw_path_mots = locus_data.get('Pathogenic Motifs') or []
+                    # record whether locus has multiple pathogenic reference motifs
+                    multi_pathogenic = len([m for m in raw_path_mots if m and str(m).strip() != '']) > 1
+                    all_path_motifs_str = ";".join(raw_path_mots) if raw_path_mots else ''
+                    # filter out sentinel 'Unknown' or empty entries
+                    motif_candidates = [m for m in raw_path_mots if m and str(m).strip().upper() != 'UNKNOWN']
+                    # If none present, keep single None so a row is emitted with motif marked unknown.
                     if not motif_candidates:
                         motif_candidates = [None]
 
                     for motif_val in motif_candidates:
-                        # compute per-row motif length (prefer explicit motif string)
-                        if motif_val:
-                            motif_len_used = float(len(motif_val))
-                        else:
-                            motif_len_used = motif_len  # previous locus-level fallback
+                        # treat 'Unknown' as missing (None)
+                        motif_val_clean = motif_val if (motif_val and str(motif_val).strip().upper() != 'UNKNOWN') else None
 
-                        # recompute repeat_count based on motif_len_used if needed
-                        if motif_len_used and isinstance(motif_len_used, (int, float)) and motif_len_used > 0:
-                            repeat_count_used = (round(allele_len / motif_len_used, 2)
-                                                 if (isinstance(allele_len, (int, float)) and allele_len > 0)
-                                                 else float('nan'))
+                        # motif length used: prefer explicit pathogenic motif length, otherwise locus annotation
+                        if motif_val_clean:
+                            motif_len_used = float(len(motif_val_clean))
                         else:
+                            motif_len_used = float(locus_data.get('Motif length') or 0.0)
+
+                        # IMPORTANT: only count repeats using the pathogenic reference motif (motif_val_clean).
+                        # Do NOT fall back to INFO.MOTIF or locus.Motif here.
+                        motif_for_repeat = motif_val_clean
+
+                        # Decide why repeat_count might be uncomputable:
+                        # - motif missing -> NaN and QC 'motif_missing'
+                        # - allele sequence missing -> NaN and QC 'no_sequence_for_allele'
+                        # Otherwise compute (will return 0.0 when motif present but no pure run).
+                        if motif_for_repeat is None:
                             repeat_count_used = float('nan')
+                            qc_reasons.append('motif_missing')
+                        elif allele_seq is None:
+                            repeat_count_used = float('nan')
+                            qc_reasons.append('no_sequence_for_allele')
+                        else:
+                            # sequence & motif present -> compute longest pure-repeat units (0.0 allowed)
+                            try:
+                                repeat_count_used = _longest_pure_repeat_count(allele_seq, motif_for_repeat)
+                            except Exception:
+                                repeat_count_used = float('nan')
+                                qc_reasons.append('repeat_count_error')
+
+                    # Determine pathogenicity: leave blank if not pathogenic, 'Yes' if within pathogenic range.
+                    is_pathogenic = ''
+                    if isinstance(repeat_count_used, (int, float)) and not pd.isna(repeat_count_used):
+                        pmin = locus_data.get('Pathogenic min')
+                        pmax = locus_data.get('Pathogenic max')
+                        gene_name = (locus_data.get('Gene') or '').strip().upper()
+                        try:
+                            pmin_val = float(pmin) if pmin is not None else None
+                        except Exception:
+                            pmin_val = None
+                        try:
+                            pmax_val = float(pmax) if pmax is not None else None
+                        except Exception:
+                            pmax_val = None
+
+                        if gene_name == 'VWA1':
+                            # For VWA1 there is no range; only exact boundary hits are pathogenic.
+                            if (pmin_val is not None and repeat_count_used == pmin_val) or \
+                               (pmax_val is not None and repeat_count_used == pmax_val):
+                                is_pathogenic = 'Yes'
+                        else:
+                            if pmin_val is not None:
+                                if pmax_val is not None:
+                                    if (repeat_count_used >= pmin_val) and (repeat_count_used <= pmax_val):
+                                        is_pathogenic = 'Yes'
+                                else:
+                                    if repeat_count_used >= pmin_val:
+                                        is_pathogenic = 'Yes'
+                            else:
+                                if pmax_val is not None and repeat_count_used <= pmax_val:
+                                    is_pathogenic = 'Yes'
+
+                        qc_reasons_row = list(qc_reasons)
+                        # annotate rows when locus has >1 pathogenic reference motif
+                        if multi_pathogenic:
+                            qc_reasons_row.append('multiple_pathogenic_reference_motifs')
+
+                        # Only mark 'repeat_count_uncomputed' when we don't already have a clearer QC reason
+                        if pd.isna(repeat_count_used):
+                            # if no sequence/motif specific reason already present, add generic flag
+                            if not any(r.startswith(('no_', 'motif_', 'repeat_count_error')) for r in qc_reasons_row):
+                                qc_reasons_row.append('repeat_count_uncomputed')
 
                         allele_records.append({
-                            'Chromosome': chrom.replace('chr', ''),
-                            'Position (Start)': pos,
-                            'Gene': locus_data['Gene'],
-                            'Disease': locus_data['Disease'],
-                            'Disease ID': locus_data['Disease ID'],
-                            'Motif': motif_val,
-                            'Motif length': motif_len_used,
-                            'Flank Motif Structure': locus_data['Flank Motif Structure'],
-                            'Benign min': locus_data['Benign min'],
-                            'Benign max': locus_data['Benign max'],
-                            'Pathogenic min': locus_data['Pathogenic min'],
-                            'Pathogenic max': locus_data['Pathogenic max'],
-                            'Inheritance': inheritance_text,
-                            'Allele Length (bp)': allele_len,        # NaN when invalid
-                            'Repeat count (Calc)': repeat_count_used,     # NaN when invalid
-                            'Haplotype': hap_idx + 1,                # 1 or 2
-                            'Sample ID (Raw)': sample_id_full,
-                            'Sample ID (Cleaned)': sample_id_clean,
-                            'SubPop': demo.get('SubPop', 'Unknown'),
-                            'SuperPop': demo.get('SuperPop', 'Unknown'),
-                            'Sex': demo.get('Sex', 'Unknown'),
-                            'Pore': demo.get('Pore', 'Unknown'),
-                            # --- QC flags ---
-                            'QC Flag': 'Yes' if qc_reasons else '',
-                            'QC Reasons': ';'.join(qc_reasons) if qc_reasons else '',
-                        })
+                                    'Chromosome': chrom.replace('chr', ''),
+                                    'Position (Start)': pos,
+                                    'Gene': locus_data['Gene'],
+                                    'Disease': locus_data['Disease'],
+                                    'Disease ID': locus_data['Disease ID'],
+                                    'Motif': motif_val,
+                                    'Motif length': motif_len_used,
+                                    'Pathogenic Motifs': all_path_motifs_str,
+                                    'Pathogenic Motif Count': len(raw_path_mots),
+                                    'Flank Motif Structure': locus_data['Flank Motif Structure'],
+                                    'Benign min': locus_data['Benign min'],
+                                    'Benign max': locus_data['Benign max'],
+                                    'Pathogenic min': locus_data['Pathogenic min'],
+                                    'Pathogenic max': locus_data['Pathogenic max'],
+                                    'Inheritance': inheritance_text,
+                                    'Allele Length (bp)': allele_len,        # NaN when invalid
+                                    'Allele Sequence': allele_seq,
+                                    'Repeat count (Calc)': repeat_count_used,     # NaN when invalid
+                                    'Is Pathogenic': is_pathogenic,
+                                    'Haplotype': hap_idx + 1,                # 1 or 2
+                                    'Sample ID (Raw)': sample_id_full,
+                                    'Sample ID (Cleaned)': sample_id_clean,
+                                    'SubPop': demo.get('SubPop', 'Unknown'),
+                                    'SuperPop': demo.get('SuperPop', 'Unknown'),
+                                    'Sex': demo.get('Sex', 'Unknown'),
+                                    'Pore': demo.get('Pore', 'Unknown'),
+                                    # --- QC flags ---
+                                    'QC Flag': 'Yes' if qc_reasons_row else '',
+                                    'QC Reasons': ';'.join(qc_reasons_row) if qc_reasons_row else '',
+                                })
 
     if not allele_records:
         print("No allele records parsed.")
+        if skipped_loci:
+            print(f"Skipped {len(skipped_loci)} VCF loci not found in JSON:")
+            for s in sorted(skipped_loci):
+                print(f"  {s}")
         return pd.DataFrame()
-
+ 
     df = pd.DataFrame(allele_records)
     print("Finished parsing VCF.")
     print(f"  Total variant records parsed: {total_sites}")
     print(f"  Generated allele rows: {len(df)}")
     print(f"  Unique samples represented: {df['Sample ID (Raw)'].nunique()}")
+    if skipped_loci:
+        print(f"Skipped {len(skipped_loci)} VCF loci not found in JSON:")
+        for s in sorted(skipped_loci):
+            print(f"  {s}")
     return df
 
 # ---------- Orchestration ----------
@@ -472,7 +697,9 @@ def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str
         'Motif': 'Motif',
         'Motif length': 'Motif length',
         'Allele Length (bp)': 'Allele length',
+        'Allele Sequence': 'Allele sequence',
         'Repeat count (Calc)': 'Repeat count',
+        'Is Pathogenic': 'Is Pathogenic',
         'Haplotype': 'Haplotype',
         'Benign min': 'Benign min',
         'Benign max': 'Benign max',
@@ -495,9 +722,9 @@ def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str
 
     desired_order = [
         'Chromosome', 'Position', 'Gene', 'Disease', 'Disease ID',
-        'Motif', 'Motif length', 'Allele length', 'Repeat count',
+        'Motif', 'Motif length', 'Allele length', 'Allele sequence', 'Repeat count',
         'Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max',
-        'Inheritance', 'Haplotype', 'Sample ID', 'Sample ID Cleaned',
+        'Is Pathogenic', 'Inheritance', 'Haplotype', 'Sample ID', 'Sample ID Cleaned',
         'SubPop', 'SuperPop', 'Sex', 'Flank Motif', 'Pore',
         'QC Flag', 'QC Reasons'
     ]
