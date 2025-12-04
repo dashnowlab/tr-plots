@@ -40,7 +40,7 @@ VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/
 LOCI_JSON = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json'
 SAMPLE_SUMMARY_CSV = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1kgp_ont_500_summary_-_sheet1.csv'
 KGP_SAMPLE_INFO = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1000_genomes_20130606_sample_info.txt'
-OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet.xlsx'
+OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet_v2.xlsx'
 
 # ---------- CLI ----------
 def parse_args():
@@ -584,6 +584,8 @@ def parse_vcf_and_merge(
 
                     # Determine pathogenicity: leave blank if not pathogenic, 'Yes' if within pathogenic range.
                     is_pathogenic = ''
+                    # Calculate pathogenicity even when inheritance is ambiguous (both AD and AR present)
+                    # Use range-based logic: within [pathogenic_min, pathogenic_max]
                     if isinstance(repeat_count_used, (int, float)) and not pd.isna(repeat_count_used):
                         pmin = locus_data.get('Pathogenic min')
                         pmax = locus_data.get('Pathogenic max')
@@ -603,6 +605,7 @@ def parse_vcf_and_merge(
                                (pmax_val is not None and repeat_count_used == pmax_val):
                                 is_pathogenic = 'Yes'
                         else:
+                            # For all other genes (including AD/AR ambiguous): use range-based logic
                             if pmin_val is not None:
                                 if pmax_val is not None:
                                     if (repeat_count_used >= pmin_val) and (repeat_count_used <= pmax_val):
@@ -618,6 +621,11 @@ def parse_vcf_and_merge(
                         # annotate rows when locus has >1 pathogenic reference motif
                         if multi_pathogenic:
                             qc_reasons_row.append('multiple_pathogenic_reference_motifs')
+
+                        # Add QC reason when inheritance is ambiguous (AD and AR both present)
+                        # but still compute pathogenicity using range logic
+                        if inheritance_ambig:
+                            qc_reasons_row.append('inheritance_AD_and_AR_used_range_logic')
 
                         # Only mark 'repeat_count_uncomputed' when we don't already have a clearer QC reason
                         if pd.isna(repeat_count_used):

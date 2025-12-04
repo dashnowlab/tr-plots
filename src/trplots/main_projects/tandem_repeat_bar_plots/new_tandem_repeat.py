@@ -38,7 +38,7 @@ SAVE_TEST_OUTPUTS = True  # If True, also save files when TEST_MODE is on
 # --- File locations ---
 from trplots.config import VCF_PATH, JSON_PATH, OUTPUT_BASE  
 
-OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/12_3_Path_Ref_Motif_Tandem_Repeats_Plots_v2")
+OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/12_3_Path_New_Tandem_Repeats_Plots_v6")
 
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
@@ -268,25 +268,37 @@ def main(args=None):
         gene = matched_locus.get("gene", group[gene_col].iloc[0] if gene_col and gene_col in group else "Unknown")
         disease = matched_locus.get("disease", group[disease_col].iloc[0] if disease_col and disease_col in group else "Unknown")
 
-        # assemble plot_df using spreadsheet Repeat Count when present, else compute via allele sequence & motif
-        if repeat_col and repeat_col in group:
-            plot_df = group[[repeat_col, motif_col]].rename(columns={repeat_col: "Repeat Count", motif_col: "Motif"}).copy()
-        else:
-            if not allele_seq_col or allele_seq_col not in group:
-                print(f"Skipping {chrom}:{pos_int} — no Repeat Count and no Allele Sequence to compute from")
+        # assemble base_df with repeat counts, motifs, and allele sequence where available
+        base_rows = []
+        for _, r in group.iterrows():
+            allele_seq = None
+            if allele_seq_col and allele_seq_col in r and pd.notna(r[allele_seq_col]):
+                allele_seq = r[allele_seq_col]
+
+            motif_val = r[motif_col] if motif_col and motif_col in r and pd.notna(r[motif_col]) else None
+            motif_clean = re.sub(r"\s+", "", str(motif_val)).upper() if motif_val is not None else None
+            if motif_clean == "UNKNOWN":
+                motif_clean = None
+
+            repeat_val = None
+            if repeat_col and repeat_col in r and pd.notna(r[repeat_col]):
+                repeat_val = r[repeat_col]
+            elif allele_seq is not None and motif_clean:
+                repeat_val = _longest_pure_repeat_count(allele_seq, motif_clean)
+
+            if repeat_val is None and allele_seq is None:
                 continue
-            rows = []
-            for _, r in group.iterrows():
-                motif_val = r[motif_col] if motif_col and motif_col in r and pd.notna(r[motif_col]) else None
-                allele_seq = r[allele_seq_col] if pd.notna(r[allele_seq_col]) else None
-                if motif_val is None or allele_seq is None:
-                    continue
-                rc = _longest_pure_repeat_count(allele_seq, motif_val)
-                rows.append({"Repeat Count": rc, "Motif": motif_val})
-            if not rows:
-                print(f"Skipping {chrom}:{pos_int} — unable to derive Repeat Count for any allele rows")
-                continue
-            plot_df = pd.DataFrame(rows)
+
+            base_rows.append({
+                "Repeat Count": repeat_val,
+                "Motif": motif_clean,
+                "Allele Sequence": allele_seq
+            })
+
+        if not base_rows:
+            print(f"Skipping {chrom}:{pos_int} — unable to derive Repeat Count for any allele rows")
+            continue
+        base_df = pd.DataFrame(base_rows)
 
         # filter to pathogenic/reference motifs from JSON if present
         raw_motif_field = (
@@ -298,17 +310,38 @@ def main(args=None):
         if isinstance(raw_motif_field, list):
             for m in raw_motif_field:
                 if isinstance(m, str) and m.strip():
-                    motifs.append(re.sub(r"\s+", "", m).upper())
+                    motif_clean = re.sub(r"\s+", "", m).upper()
+                    if motif_clean and motif_clean.upper() != "UNKNOWN":
+                        motifs.append(motif_clean)
         elif isinstance(raw_motif_field, str) and raw_motif_field.strip():
-            motifs.append(re.sub(r"\s+", "", raw_motif_field).upper())
+            motif_clean = re.sub(r"\s+", "", raw_motif_field).upper()
+            if motif_clean and motif_clean.upper() != "UNKNOWN":
+                motifs.append(motif_clean)
         seen = set()
         motifs = [m for m in motifs if not (m in seen or seen.add(m))]
-        # if no motifs in JSON, allow spreadsheet motifs
-        if motifs:
-            plot_df["Motif"] = plot_df["Motif"].astype(str)
-            plot_df = plot_df[plot_df["Motif"].isin(motifs)]
+        
+        # KEEP ALL motifs (do NOT pick just one)
+        if not motifs:
+            print(f"Skipping {chrom}:{pos_int} ({gene}) — no valid pathogenic reference motifs")
+            continue
 
-        # drop NaN repeat counts (these indicate uncomputable)
+        # Build plot_df so every pathogenic motif from JSON appears (color distinguishes motif).
+        expanded_rows = []
+        for _, r in base_df.iterrows():
+            allele_seq = r.get("Allele Sequence")
+            base_repeat = r.get("Repeat Count")
+            base_motif = r.get("Motif")
+
+            for motif in motifs:
+                if allele_seq is not None and pd.notna(allele_seq):
+                    rc = _longest_pure_repeat_count(allele_seq, motif)
+                elif base_motif == motif and pd.notna(base_repeat):
+                    rc = base_repeat
+                else:
+                    rc = float("nan")
+                expanded_rows.append({"Repeat Count": rc, "Motif": motif})
+
+        plot_df = pd.DataFrame(expanded_rows)
         plot_df = plot_df.dropna(subset=["Repeat Count"])
         if plot_df.empty:
             print(f"Skipping {chrom}:{pos_int} ({gene}) — no usable repeat counts after filtering motifs")
@@ -362,6 +395,14 @@ def main(args=None):
         elif pathogenic_min is not None and pathogenic_max is not None:
             add_range_marker_or_line(fig, pathogenic_min, pathogenic_max, "Pathogenic", label_positions, chart_width_px=fig.layout.width, x_span=x_span, level=pathogenic_level)
 
+        fig.update_layout(
+            width=900, height=500, margin=dict(t=125),
+            xaxis_title="Repeat Count", yaxis_title="Allele Count",
+            plot_bgcolor='white'
+        )
+        fig.update_xaxes(showline=True, linecolor='black', zeroline=False, showgrid=False, ticks="outside")
+        fig.update_yaxes(showline=True, linecolor='black', zeroline=False, showgrid=True, gridcolor='rgba(0,0,0,0.08)', ticks="outside")
+
         # --- Save / Preview ---
         safe_gene = re.sub(r'[^A-Za-z0-9_-]+', '_', str(gene) or "gene")[:50]
         html_path = os.path.join(OUTPUT_HTML_DIR, f"{safe_gene}_{chrom}_{pos_int}_allele_dist.html")
@@ -379,7 +420,7 @@ def main(args=None):
                     if getattr(fig.layout, "title", None) and getattr(fig.layout.title, "text", None):
                         orig_title = fig.layout.title.text
                         fig.update_layout(title_text=f"{safe_gene}_{chrom}_{pos_int}")
-                    fig.write_image(png_path, format="png", width=900, height=500, scale=2)
+                    fig.write_image(png_path, width=900, height=500)
                 except Exception as e:
                     print(f"PNG export failed for {png_path}: {e} (HTML saved)")
                 finally:
@@ -392,7 +433,7 @@ def main(args=None):
                 if getattr(fig.layout, "title", None) and getattr(fig.layout.title, "text", None):
                     orig_title = fig.layout.title.text
                     fig.update_layout(title_text=f"{safe_gene}_{chrom}_{pos_int}")
-                fig.write_image(png_path, format="png", width=900, height=500, scale=2)
+                fig.write_image(png_path, width=900, height=500)
             except Exception as e:
                 print(f"PNG export failed for {png_path}: {e} (HTML saved)")
             finally:
