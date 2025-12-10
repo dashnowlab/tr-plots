@@ -12,7 +12,7 @@ Key behaviors / features:
     - Converts missing or <=0 AL values to NaN and records QC reasons.
     - Derives motif length from loci metadata, info.MOTIF, or REF sequence.
     - Calculates repeat count as the longest pure, contiguous run of the motif within
-      the allele sequence (requires REF/ALT sequence).
+      the allele sequence (requires REF/ALT sequence). Note: if the motif contains 'N', it is treated as a wildcard matching any base, so the "pure" run includes such wildcard matches.
     - Emits one row per non-missing haplotype with Haplotype (1/2), Sample ID raw/cleaned,
       demographics (SubPop/SuperPop/Sex/Pore), locus annotations, QC Flag and QC Reasons.
     - Backfills SubPop/SuperPop/Sex from 1kGP data when CSV values are unknown/missing.
@@ -21,6 +21,7 @@ Key behaviors / features:
     - Supports --drop-sample (repeatable) to skip exact VCF header sample names.
     - Writes an Excel file (sheet 'Integrated Alleles'). Numeric NaNs for
       Allele length and Repeat count are written as the string "NaN" for visibility.
+      Other numeric columns (e.g., Motif length) may contain numeric NaN values in the output.
     - Expects VCF sample names often beginning with HG*, GM*, NA*; a cleaning helper
       strips common suffixes to match sample CSV / 1kGP keys.
 """
@@ -30,17 +31,22 @@ import gzip
 import json
 import os
 import re
+from pathlib import Path
 from typing import Dict, List, Optional
 
 import pandas as pd
 from openpyxl.utils import get_column_letter
 
 # ---------- Defaults (override via CLI) ----------
-VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/81_loci_502_samples/1000g-ont-strchive-81_loci_502_samples_81224_alleles.vcf.gz'
-LOCI_JSON = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json'
-SAMPLE_SUMMARY_CSV = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1kgp_ont_500_summary_-_sheet1.csv'
-KGP_SAMPLE_INFO = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1000_genomes_20130606_sample_info.txt'
-OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet.xlsx'
+# Base everything off the repo root so paths stay portable when this file moves.
+BASE_DIR = Path(__file__).resolve().parents[3]  # .../tr-plots
+DATA_DIR = BASE_DIR / "data"
+# Main inputs/outputs live under ./data; change here or override via CLI.
+VCF_FILE = DATA_DIR / "sequencing_data/81_loci_502_samples/1000g-ont-strchive-81_loci_502_samples_81224_alleles.vcf.gz"
+LOCI_JSON = DATA_DIR / "other_data/strchive-loci.json"
+SAMPLE_SUMMARY_CSV = DATA_DIR / "other_data/1kgp_ont_500_summary_-_sheet1.csv"
+KGP_SAMPLE_INFO = DATA_DIR / "other_data/1000_genomes_20130606_sample_info.txt"
+OUTPUT_FILE = DATA_DIR / "other_data/allele_spreadsheet.xlsx"
 
 # ---------- CLI ----------
 def parse_args():
@@ -57,6 +63,10 @@ def parse_args():
 
 # ---------- Data Loading ----------
 def load_loci_data(json_file: str) -> Dict[str, dict]:
+    """
+    Load locus metadata (motifs, thresholds, inheritance) from the JSON.
+    I keep two keys for lookup: the locus id and chrom:pos so either will match the VCF.
+    """
     with open(json_file, 'r') as f:
         data = json.load(f)
 
@@ -66,10 +76,10 @@ def load_loci_data(json_file: str) -> Dict[str, dict]:
         if flank_motif_value is not None and not isinstance(flank_motif_value, str):
             flank_motif_value = str(flank_motif_value)
 
-        # ONLY collect pathogenic_motif_reference_orientation (do not fall back to gene/reference keys).
+        # Only trust the pathogenic motif(s) in reference orientation.
         raw_pathogenic = entry.get('pathogenic_motif_reference_orientation')
 
-        # Normalize and collect all candidate pathogenic motifs (may be multiple).
+        # Normalize and keep all pathogenic motifs (deduped, order preserved).
         pathogenic_motifs: List[str] = []
         if isinstance(raw_pathogenic, list):
             for m in raw_pathogenic:
@@ -77,26 +87,25 @@ def load_loci_data(json_file: str) -> Dict[str, dict]:
                     pathogenic_motifs.append(re.sub(r"\s+", "", m).upper())
         elif isinstance(raw_pathogenic, str) and raw_pathogenic.strip():
             pathogenic_motifs.append(re.sub(r"\s+", "", raw_pathogenic).upper())
-        # Deduplicate while preserving order
         seen_m = set()
         pathogenic_motifs = [m for m in pathogenic_motifs if not (m in seen_m or seen_m.add(m))]
-        # If no pathogenic motifs are present, keep list empty and mark Motif as 'Unknown'
- 
+
         entry_data = {
             'Gene': entry.get('gene'),
             'Disease': entry.get('disease'),
             'Disease ID': entry.get('disease_id'),
-            # keep first motif for backward compatibility; if none present mark 'Unknown'
+            # Back-compat single motif (or Unknown if none)
             'Motif': pathogenic_motifs[0] if pathogenic_motifs else 'Unknown',
             'Pathogenic Motifs': pathogenic_motifs,
-            # original 'Motif length' kept as locus annotation (may be None)
             'Motif length': entry.get('motif_len'),
             'Benign min': entry.get('benign_min'),
             'Benign max': entry.get('benign_max'),
             'Pathogenic min': entry.get('pathogenic_min'),
             'Pathogenic max': entry.get('pathogenic_max'),
+            # Inheritance is stored as a comma-joined string
             'Inheritance': ', '.join(entry.get('inheritance', [])),
-            'Inheritance Details': entry.get('details'),  # Add details field from JSON
+            # Free-text notes from JSON (used only when AD+AR is present)
+            'Inheritance Details': entry.get('details'),
             'Flank Motif Structure': flank_motif_value
         }
         id_key = entry['id']
@@ -232,11 +241,10 @@ def _clean_sample_id(raw: str) -> str:
 
 def _allele_sequence(allele_tok: str, ref: Optional[str], alt_alleles: List[str]) -> Optional[str]:
     """
-    Return the allele sequence corresponding to an allele token from GT:
-      - '0' => REF
-      - '1','2',... => 1-based index into alt_alleles
-    Returns None for missing tokens ('.'), non-numeric tokens, or out-of-range indices.
-    Also returns None for symbolic alleles like <DEL>, <INS>, etc.
+    Map a GT allele token to its sequence:
+      0  -> REF
+      1+ -> ALT list (1-based)
+    Returns None for missing/out-of-range/symbolic (<DEL>, <INS>, etc.).
     """
     if allele_tok is None:
         return None
@@ -260,7 +268,7 @@ def _allele_sequence(allele_tok: str, ref: Optional[str], alt_alleles: List[str]
         return None
     return alt
 
-# NEW: helper to detect ambiguous inheritance (AD and AR both present)
+# Hhelper to detect ambiguous inheritance (AD and AR both present)
 _INHER_SPLIT_RE = re.compile(r'[,/;| ]+')
 def _has_both_ad_ar(inheritance_text: Optional[str]) -> bool:
     if not inheritance_text:
@@ -270,12 +278,9 @@ def _has_both_ad_ar(inheritance_text: Optional[str]) -> bool:
 
 def _longest_pure_repeat_count(sequence: Optional[str], motif: Optional[str]) -> float:
     """
-    Return the length (in repeat units) of the longest uninterrupted run of `motif`
-    within `sequence`. Treat 'N' in motif as a wildcard matching any single base.
-
-    Behavior changed:
-      - If sequence is None or motif is missing -> return NaN (cannot compute).
-      - If sequence present and motif present but no pure runs found -> return 0.0.
+    Longest uninterrupted run of motif in the sequence (in repeat units).
+    Returns NaN if we can't compute (missing motif/sequence); returns 0.0 when
+    sequence is present but no pure run exists.
     """
     if sequence is None or motif is None:
         return float('nan')
@@ -295,7 +300,7 @@ def _longest_pure_repeat_count(sequence: Optional[str], motif: Optional[str]) ->
         if run > best:
             best = run
 
-    # NOTE: return 0 when sequence valid but no runs found; return NaN only when compute impossible.
+    # Return 0 when sequence valid but no runs found; return NaN only when compute impossible.
     return float(best) if best > 0 else 0.0
 
 def _motif_metrics(sequence: Optional[str], motif: Optional[str]) -> dict:
@@ -361,19 +366,23 @@ def _motif_metrics(sequence: Optional[str], motif: Optional[str]) -> dict:
 
 # ---------- Core ----------
 def parse_vcf_and_merge(
-    vcf_file: str,
+    vcf_file: str | Path,
     loci_map: Dict[str, dict],
     sample_map_csv: Dict[str, dict],
     sample_map_1kgp: Dict[str, dict],
     drop_samples: List[str]
 ) -> pd.DataFrame:
-
+    """
+    Core parser: walk the VCF, expand diploid GT/AL into per-haplotype rows,
+    attach locus metadata + demographics, and compute repeat counts/QC.
+    """
     print("Parsing VCF and building allele table...")
     allele_records: List[dict] = []
     vcf_header_sample_ids: List[str] = []
 
-    opener = gzip.open if vcf_file.endswith('.gz') else open
-    mode = 'rt' if vcf_file.endswith('.gz') else 'r'
+    vcf_path = Path(vcf_file)
+    opener = gzip.open if vcf_path.suffix == '.gz' else open
+    mode = 'rt' if vcf_path.suffix == '.gz' else 'r'
 
     DEFAULT_LOCUS_DATA = {
         'Gene': 'Unknown', 'Disease': 'Unknown', 'Disease ID': 'Unknown',
@@ -385,7 +394,7 @@ def parse_vcf_and_merge(
 
     total_sites = 0
     skipped_loci = set()  # collect chr:pos for VCF records not present in loci JSON
-    with opener(vcf_file, mode, encoding='utf-8') as f:
+    with opener(vcf_path, mode, encoding='utf-8') as f:
         for line in f:
             if line.startswith('##'):
                 continue
@@ -426,7 +435,7 @@ def parse_vcf_and_merge(
             locus_key_pos = f"{chrom.replace('chr', '')}:{pos}"
             locus_data = loci_map.get(locus_key_id) or loci_map.get(locus_key_pos)
             if not locus_data:
-                # record and skip any VCF record not present in the JSON loci list
+                # VCF site not in our loci list -> skip but remember for the summary
                 skipped_loci.add(f"{chrom}:{pos}")
                 continue
             if locus_data and motif_from_info and not locus_data['Motif']:
@@ -444,7 +453,7 @@ def parse_vcf_and_merge(
 
                 sample_id_clean = _clean_sample_id(sample_id_full)
 
-                # Start with CSV demographics
+                # Start with CSV demographics, then backfill Unknowns from 1kGP
                 demo = {'SubPop': 'Unknown', 'SuperPop': 'Unknown', 'Sex': 'Unknown', 'Pore': 'Unknown'}
                 if sample_map_csv.get(sample_id_clean):
                     demo.update(sample_map_csv[sample_id_clean])
@@ -483,9 +492,9 @@ def parse_vcf_and_merge(
                 al_haps = _hap_lengths_from_AL(fmt_data.get('AL', '.'))
 
                 # --- inheritance ambiguity check (once per row) ---
+                # If both AD and AR are present, keep details from JSON; otherwise None.
                 inheritance_text = locus_data.get('Inheritance', '')
                 inheritance_ambig = _has_both_ad_ar(inheritance_text)
-                # Only keep detailed text from JSON when both AD and AR are present
                 inheritance_details_value = (
                     locus_data.get('Inheritance Details')
                     if inheritance_ambig else None
@@ -497,7 +506,7 @@ def parse_vcf_and_merge(
 
                     allele_seq = _allele_sequence(allele_tok, ref, alt_alleles)
 
-                    # Skip symbolic alleles and warn
+                    # Skip symbolic alleles and warn. Example: <DEL>, <INS>, etc.
                     if allele_tok != '0':  # not REF
                         try:
                             idx = int(allele_tok) - 1
@@ -511,6 +520,7 @@ def parse_vcf_and_merge(
                             pass
 
                     # --- Compute allele length per haplotype with QC ---
+                    # For ALT, prefer AL; if AL<=0 fall back to actual sequence length.
                     qc_reasons = []
 
                     if allele_tok == '0':
@@ -541,12 +551,11 @@ def parse_vcf_and_merge(
                         qc_reasons.append('motif_len_le0_or_missing')
                         repeat_count = float('nan')
 
-                    # Append inheritance ambiguity reason
+                    # Append inheritance ambiguity reason (tracking for QC)
                     if inheritance_ambig:
                         qc_reasons.append('inheritance_AD_and_AR')
 
-                    # NEW: flag if benign range falls entirely within pathogenic range
-                    # (adds a QC reason so QC Flag becomes 'Yes' for that row)
+                    # Flag impossible benign/pathogenic ordering (benign fully inside pathogenic)
                     try:
                         # Skip this QC for loci you've handled separately (e.g. VWA1)
                         gene_name = (locus_data.get('Gene') or '').strip().upper()
@@ -567,8 +576,8 @@ def parse_vcf_and_merge(
                     except Exception:
                         pass
 
-                    # Determine motif candidates to expand rows: use ONLY Pathogenic Motifs (reference orientation).
-                    # otherwise fall back to locus 'Motif' (single) or motif from INFO.
+                    # Pathogenic motif expansion: one row per pathogenic ref motif.
+                    # If multiple motifs exist, we emit multiple rows per allele.
                     raw_path_mots = locus_data.get('Pathogenic Motifs') or []
                     # record whether locus has multiple pathogenic reference motifs
                     multi_pathogenic = len([m for m in raw_path_mots if m and str(m).strip() != '']) > 1
@@ -589,8 +598,8 @@ def parse_vcf_and_merge(
                         else:
                             motif_len_used = float(locus_data.get('Motif length') or 0.0)
 
-                        # IMPORTANT: only count repeats using the pathogenic reference motif (motif_val_clean).
-                        # Do NOT fall back to INFO.MOTIF or locus.Motif here.
+                        # Only count repeats using the pathogenic reference motif (motif_val_clean).
+                        # Do NOT fall back to INFO.MOTIF or locus.Motif
                         motif_for_repeat = motif_val_clean
 
                         # Decide why repeat_count might be uncomputable:
@@ -612,7 +621,7 @@ def parse_vcf_and_merge(
                                 repeat_count_used = float('nan')
                                 qc_reasons_motif = list(qc_reasons) + ['repeat_count_error']
 
-                        # Determine pathogenicity: leave blank if not pathogenic, 'Yes' if within pathogenic range.
+                        # Determine pathogenicity: range-based; VWA1 uses boundary hits only.
                         is_pathogenic = ''
                         # Calculate pathogenicity even when inheritance is ambiguous (both AD and AR present)
                         # Use range-based logic: within [pathogenic_min, pathogenic_max]
@@ -648,7 +657,7 @@ def parse_vcf_and_merge(
                                         is_pathogenic = 'Yes'
 
                         qc_reasons_row = list(qc_reasons_motif)
-                        # annotate rows when locus has >1 pathogenic reference motif
+                        # Mark loci with multiple pathogenic motifs
                         if multi_pathogenic:
                             qc_reasons_row.append('multiple_pathogenic_reference_motifs')
 
@@ -658,7 +667,7 @@ def parse_vcf_and_merge(
                             if not any(r.startswith(('no_', 'motif_', 'repeat_count_error')) for r in qc_reasons_row):
                                 qc_reasons_row.append('repeat_count_uncomputed')
 
-                        # Append one row per motif (so multiple pathogenic motifs create multiple rows)
+                        # One output row per motif per haplotype
                         allele_records.append({
                             'Chromosome': chrom.replace('chr', ''),
                             'Position (Start)': pos,
@@ -713,6 +722,9 @@ def parse_vcf_and_merge(
 # ---------- Orchestration ----------
 def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str,
                                   kgp_txt: str, output_file: str, drop_samples: List[str]) -> Optional[str]:
+    """
+    Orchestrates the run: load metadata, parse VCF, select/rename columns, and write Excel.
+    """
     loci_map = load_loci_data(loci_json)
     sample_map_csv = load_all_sample_info(sample_csv)
     sample_map_1kgp = load_1kgp_sample_info(kgp_txt)
@@ -765,7 +777,7 @@ def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str
     ]
     df_final = df_final.reindex(columns=desired_order)
 
-    # Write "NaN" strings to Excel for visibility (keep numeric NaN in memory)
+    # Write "NaN" strings to Excel
     for col in ['Allele length', 'Repeat count']:
         if col in df_final.columns:
             df_final[col] = df_final[col].where(pd.notna(df_final[col]), 'NaN')
