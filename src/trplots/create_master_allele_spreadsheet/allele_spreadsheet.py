@@ -33,14 +33,14 @@ import re
 from typing import Dict, List, Optional
 
 import pandas as pd
-from openpyxl.utils import get_column_letter  # noqa: F401
+from openpyxl.utils import get_column_letter
 
 # ---------- Defaults (override via CLI) ----------
 VCF_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/sequencing_data/81_loci_502_samples/1000g-ont-strchive-81_loci_502_samples_81224_alleles.vcf.gz'
 LOCI_JSON = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/strchive-loci.json'
 SAMPLE_SUMMARY_CSV = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1kgp_ont_500_summary_-_sheet1.csv'
 KGP_SAMPLE_INFO = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/1000_genomes_20130606_sample_info.txt'
-OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet_v2.xlsx'
+OUTPUT_FILE = '/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet.xlsx'
 
 # ---------- CLI ----------
 def parse_args():
@@ -96,6 +96,7 @@ def load_loci_data(json_file: str) -> Dict[str, dict]:
             'Pathogenic min': entry.get('pathogenic_min'),
             'Pathogenic max': entry.get('pathogenic_max'),
             'Inheritance': ', '.join(entry.get('inheritance', [])),
+            'Inheritance Details': entry.get('details'),  # Add details field from JSON
             'Flank Motif Structure': flank_motif_value
         }
         id_key = entry['id']
@@ -235,6 +236,7 @@ def _allele_sequence(allele_tok: str, ref: Optional[str], alt_alleles: List[str]
       - '0' => REF
       - '1','2',... => 1-based index into alt_alleles
     Returns None for missing tokens ('.'), non-numeric tokens, or out-of-range indices.
+    Also returns None for symbolic alleles like <DEL>, <INS>, etc.
     """
     if allele_tok is None:
         return None
@@ -252,6 +254,9 @@ def _allele_sequence(allele_tok: str, ref: Optional[str], alt_alleles: List[str]
         return None
     alt = alt_alleles[idx]
     if alt is None or alt == '.':
+        return None
+    # Skip symbolic alleles (e.g., <DEL>, <INS>, <DUP>, <CNV>)
+    if isinstance(alt, str) and alt.startswith('<') and alt.endswith('>'):
         return None
     return alt
 
@@ -375,7 +380,7 @@ def parse_vcf_and_merge(
         'Motif': None, 'Motif length': 0,
         'Benign min': None, 'Benign max': None,
         'Pathogenic min': None, 'Pathogenic max': None,
-        'Inheritance': 'Unknown', 'Flank Motif Structure': None
+        'Inheritance': 'Unknown', 'Inheritance Details': None, 'Flank Motif Structure': None
     }
 
     total_sites = 0
@@ -480,12 +485,30 @@ def parse_vcf_and_merge(
                 # --- inheritance ambiguity check (once per row) ---
                 inheritance_text = locus_data.get('Inheritance', '')
                 inheritance_ambig = _has_both_ad_ar(inheritance_text)
+                # Only keep detailed text from JSON when both AD and AR are present
+                inheritance_details_value = (
+                    locus_data.get('Inheritance Details')
+                    if inheritance_ambig else None
+                )
 
                 for hap_idx, allele_tok in enumerate(gt_toks):
                     if allele_tok == '.':
                         continue
 
                     allele_seq = _allele_sequence(allele_tok, ref, alt_alleles)
+
+                    # Skip symbolic alleles and warn
+                    if allele_tok != '0':  # not REF
+                        try:
+                            idx = int(allele_tok) - 1
+                            if 0 <= idx < len(alt_alleles):
+                                alt = alt_alleles[idx]
+                                if isinstance(alt, str) and alt.startswith('<') and alt.endswith('>'):
+                                    print(f"[WARN] Skipping symbolic allele {alt} at {chrom}:{pos} "
+                                          f"for sample {sample_id_full} hap{hap_idx + 1}")
+                                    continue
+                        except (ValueError, IndexError):
+                            pass
 
                     # --- Compute allele length per haplotype with QC ---
                     qc_reasons = []
@@ -497,11 +520,17 @@ def parse_vcf_and_merge(
                             qc_reasons.append('ref_len_le0_or_missing')
                             allele_len = float('nan')
                     else:
-                        # ALT allele -> from AL per-haplotype
+                        # ALT allele -> prefer AL per haplotype, but fall back to sequence length if AL <= 0
                         allele_len = al_haps[hap_idx]
+
                         if (allele_len is None) or (allele_len <= 0):
-                            qc_reasons.append('AL_missing_or_le0')
-                            allele_len = float('nan')  # force NaN for <=0/missing
+                            # Fallback: if we have an explicit allele sequence, use its length
+                            if allele_seq is not None and isinstance(allele_seq, str) and len(allele_seq) > 0:
+                                allele_len = len(allele_seq)
+                                qc_reasons.append('AL_missing_or_le0_but_len_from_sequence')
+                            else:
+                                qc_reasons.append('AL_missing_or_le0')
+                                allele_len = float('nan')  # still unusable if no sequence either
 
                     # Repeat count: only if both allele_len and motif_len are valid (>0)
                     if motif_len and isinstance(motif_len, (int, float)) and motif_len > 0:
@@ -512,7 +541,7 @@ def parse_vcf_and_merge(
                         qc_reasons.append('motif_len_le0_or_missing')
                         repeat_count = float('nan')
 
-                    # NEW: append inheritance ambiguity reason
+                    # Append inheritance ambiguity reason
                     if inheritance_ambig:
                         qc_reasons.append('inheritance_AD_and_AR')
 
@@ -570,62 +599,58 @@ def parse_vcf_and_merge(
                         # Otherwise compute (will return 0.0 when motif present but no pure run).
                         if motif_for_repeat is None:
                             repeat_count_used = float('nan')
-                            qc_reasons.append('motif_missing')
+                            qc_reasons_motif = list(qc_reasons) + ['motif_missing']
                         elif allele_seq is None:
                             repeat_count_used = float('nan')
-                            qc_reasons.append('no_sequence_for_allele')
+                            qc_reasons_motif = list(qc_reasons) + ['no_sequence_for_allele']
                         else:
                             # sequence & motif present -> compute longest pure-repeat units (0.0 allowed)
                             try:
                                 repeat_count_used = _longest_pure_repeat_count(allele_seq, motif_for_repeat)
+                                qc_reasons_motif = list(qc_reasons)
                             except Exception:
                                 repeat_count_used = float('nan')
-                                qc_reasons.append('repeat_count_error')
+                                qc_reasons_motif = list(qc_reasons) + ['repeat_count_error']
 
-                    # Determine pathogenicity: leave blank if not pathogenic, 'Yes' if within pathogenic range.
-                    is_pathogenic = ''
-                    # Calculate pathogenicity even when inheritance is ambiguous (both AD and AR present)
-                    # Use range-based logic: within [pathogenic_min, pathogenic_max]
-                    if isinstance(repeat_count_used, (int, float)) and not pd.isna(repeat_count_used):
-                        pmin = locus_data.get('Pathogenic min')
-                        pmax = locus_data.get('Pathogenic max')
-                        gene_name = (locus_data.get('Gene') or '').strip().upper()
-                        try:
-                            pmin_val = float(pmin) if pmin is not None else None
-                        except Exception:
-                            pmin_val = None
-                        try:
-                            pmax_val = float(pmax) if pmax is not None else None
-                        except Exception:
-                            pmax_val = None
+                        # Determine pathogenicity: leave blank if not pathogenic, 'Yes' if within pathogenic range.
+                        is_pathogenic = ''
+                        # Calculate pathogenicity even when inheritance is ambiguous (both AD and AR present)
+                        # Use range-based logic: within [pathogenic_min, pathogenic_max]
+                        if isinstance(repeat_count_used, (int, float)) and not pd.isna(repeat_count_used):
+                            pmin = locus_data.get('Pathogenic min')
+                            pmax = locus_data.get('Pathogenic max')
+                            gene_name = (locus_data.get('Gene') or '').strip().upper()
+                            try:
+                                pmin_val = float(pmin) if pmin is not None else None
+                            except Exception:
+                                pmin_val = None
+                            try:
+                                pmax_val = float(pmax) if pmax is not None else None
+                            except Exception:
+                                pmax_val = None
 
-                        if gene_name == 'VWA1':
-                            # For VWA1 there is no range; only exact boundary hits are pathogenic.
-                            if (pmin_val is not None and repeat_count_used == pmin_val) or \
-                               (pmax_val is not None and repeat_count_used == pmax_val):
-                                is_pathogenic = 'Yes'
-                        else:
-                            # For all other genes (including AD/AR ambiguous): use range-based logic
-                            if pmin_val is not None:
-                                if pmax_val is not None:
-                                    if (repeat_count_used >= pmin_val) and (repeat_count_used <= pmax_val):
-                                        is_pathogenic = 'Yes'
-                                else:
-                                    if repeat_count_used >= pmin_val:
-                                        is_pathogenic = 'Yes'
-                            else:
-                                if pmax_val is not None and repeat_count_used <= pmax_val:
+                            if gene_name == 'VWA1':
+                                # For VWA1 there is no range; only exact boundary hits are pathogenic.
+                                if (pmin_val is not None and repeat_count_used == pmin_val) or \
+                                   (pmax_val is not None and repeat_count_used == pmax_val):
                                     is_pathogenic = 'Yes'
+                            else:
+                                # For all other genes (including AD/AR ambiguous): use range-based logic
+                                if pmin_val is not None:
+                                    if pmax_val is not None:
+                                        if (repeat_count_used >= pmin_val) and (repeat_count_used <= pmax_val):
+                                            is_pathogenic = 'Yes'
+                                    else:
+                                        if repeat_count_used >= pmin_val:
+                                            is_pathogenic = 'Yes'
+                                else:
+                                    if pmax_val is not None and repeat_count_used <= pmax_val:
+                                        is_pathogenic = 'Yes'
 
-                        qc_reasons_row = list(qc_reasons)
+                        qc_reasons_row = list(qc_reasons_motif)
                         # annotate rows when locus has >1 pathogenic reference motif
                         if multi_pathogenic:
                             qc_reasons_row.append('multiple_pathogenic_reference_motifs')
-
-                        # Add QC reason when inheritance is ambiguous (AD and AR both present)
-                        # but still compute pathogenicity using range logic
-                        if inheritance_ambig:
-                            qc_reasons_row.append('inheritance_AD_and_AR_used_range_logic')
 
                         # Only mark 'repeat_count_uncomputed' when we don't already have a clearer QC reason
                         if pd.isna(repeat_count_used):
@@ -633,37 +658,38 @@ def parse_vcf_and_merge(
                             if not any(r.startswith(('no_', 'motif_', 'repeat_count_error')) for r in qc_reasons_row):
                                 qc_reasons_row.append('repeat_count_uncomputed')
 
+                        # Append one row per motif (so multiple pathogenic motifs create multiple rows)
                         allele_records.append({
-                                    'Chromosome': chrom.replace('chr', ''),
-                                    'Position (Start)': pos,
-                                    'Gene': locus_data['Gene'],
-                                    'Disease': locus_data['Disease'],
-                                    'Disease ID': locus_data['Disease ID'],
-                                    'Motif': motif_val,
-                                    'Motif length': motif_len_used,
-                                    'Pathogenic Motifs': all_path_motifs_str,
-                                    'Pathogenic Motif Count': len(raw_path_mots),
-                                    'Flank Motif Structure': locus_data['Flank Motif Structure'],
-                                    'Benign min': locus_data['Benign min'],
-                                    'Benign max': locus_data['Benign max'],
-                                    'Pathogenic min': locus_data['Pathogenic min'],
-                                    'Pathogenic max': locus_data['Pathogenic max'],
-                                    'Inheritance': inheritance_text,
-                                    'Allele Length (bp)': allele_len,        # NaN when invalid
-                                    'Allele Sequence': allele_seq,
-                                    'Repeat count (Calc)': repeat_count_used,     # NaN when invalid
-                                    'Is Pathogenic': is_pathogenic,
-                                    'Haplotype': hap_idx + 1,                # 1 or 2
-                                    'Sample ID (Raw)': sample_id_full,
-                                    'Sample ID (Cleaned)': sample_id_clean,
-                                    'SubPop': demo.get('SubPop', 'Unknown'),
-                                    'SuperPop': demo.get('SuperPop', 'Unknown'),
-                                    'Sex': demo.get('Sex', 'Unknown'),
-                                    'Pore': demo.get('Pore', 'Unknown'),
-                                    # --- QC flags ---
-                                    'QC Flag': 'Yes' if qc_reasons_row else '',
-                                    'QC Reasons': ';'.join(qc_reasons_row) if qc_reasons_row else '',
-                                })
+                            'Chromosome': chrom.replace('chr', ''),
+                            'Position (Start)': pos,
+                            'Gene': locus_data['Gene'],
+                            'Disease': locus_data['Disease'],
+                            'Disease ID': locus_data['Disease ID'],
+                            'Motif': motif_val,
+                            'Motif length': motif_len_used,
+                            'Pathogenic Motifs': all_path_motifs_str,
+                            'Pathogenic Motif Count': len(raw_path_mots),
+                            'Flank Motif Structure': locus_data['Flank Motif Structure'],
+                            'Benign min': locus_data['Benign min'],
+                            'Benign max': locus_data['Benign max'],
+                            'Pathogenic min': locus_data['Pathogenic min'],
+                            'Pathogenic max': locus_data['Pathogenic max'],
+                            'Inheritance': inheritance_text,
+                            'Inheritance Details': inheritance_details_value,
+                            'Allele Length (bp)': allele_len,
+                            'Allele Sequence': allele_seq,
+                            'Repeat count (Calc)': repeat_count_used,
+                            'Is Pathogenic': is_pathogenic,
+                            'Haplotype': hap_idx + 1,
+                            'Sample ID (Raw)': sample_id_full,
+                            'Sample ID (Cleaned)': sample_id_clean,
+                            'SubPop': demo.get('SubPop', 'Unknown'),
+                            'SuperPop': demo.get('SuperPop', 'Unknown'),
+                            'Sex': demo.get('Sex', 'Unknown'),
+                            'Pore': demo.get('Pore', 'Unknown'),
+                            'QC Flag': 'Yes' if qc_reasons_row else '',
+                            'QC Reasons': ';'.join(qc_reasons_row) if qc_reasons_row else '',
+                        })
 
     if not allele_records:
         print("No allele records parsed.")
@@ -714,6 +740,7 @@ def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str
         'Pathogenic min': 'Pathogenic min',
         'Pathogenic max': 'Pathogenic max',
         'Inheritance': 'Inheritance',
+        'Inheritance Details': 'Inheritance Details',
         'Sample ID (Raw)': 'Sample ID',
         'Sample ID (Cleaned)': 'Sample ID Cleaned',
         'SubPop': 'SubPop',
@@ -732,7 +759,7 @@ def create_integrated_spreadsheet(loci_json: str, vcf_file: str, sample_csv: str
         'Chromosome', 'Position', 'Gene', 'Disease', 'Disease ID',
         'Motif', 'Motif length', 'Allele length', 'Allele sequence', 'Repeat count',
         'Benign min', 'Benign max', 'Pathogenic min', 'Pathogenic max',
-        'Is Pathogenic', 'Inheritance', 'Haplotype', 'Sample ID', 'Sample ID Cleaned',
+        'Is Pathogenic', 'Inheritance', 'Inheritance Details', 'Haplotype', 'Sample ID', 'Sample ID Cleaned',
         'SubPop', 'SuperPop', 'Sex', 'Flank Motif', 'Pore',
         'QC Flag', 'QC Reasons'
     ]
