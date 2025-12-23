@@ -18,7 +18,6 @@ import re
 from pathlib import Path
 import numpy as np
 import pandas as pd
-import pysam
 import plotly.express as px
 import plotly.graph_objects as go
 import plotly.io as pio
@@ -40,6 +39,10 @@ FIG_WIDTH = 900
 FIG_HEIGHT = 500
 
 # --- File locations ---
+import sys
+from pathlib import Path
+# Ensure repo's src is on sys.path for `trplots.config`
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 from trplots.config import VCF_PATH, JSON_PATH, OUTPUT_BASE  
 
 OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/path_ref_motif_tandem_repeats_plots")

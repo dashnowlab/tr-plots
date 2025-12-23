@@ -30,7 +30,7 @@ pio.renderers.default = "browser"
 # ----------------------------
 DEFAULT_TEST_MODE = True
 DEFAULT_TEST_LIMIT = 2
-DEFAULT_SAVE_TEST_OUTPUTS = False
+DEFAULT_SAVE_TEST_OUTPUTS = True
 
 # Repository base directory (go up from this file to repo root)
 BASE_DIR = Path(__file__).resolve().parents[4]
@@ -39,7 +39,13 @@ BASE_DIR = Path(__file__).resolve().parents[4]
 DATA_PATH = BASE_DIR / "data" / "other_data" / "allele_spreadsheet.xlsx"
 SHEET_NAME = "Integrated Alleles"
 
+# --- Figure sizing (standardized across all main_projects)
+FIG_WIDTH = 900
+FIG_HEIGHT = 500
+
 # If you have trplots.config available, keep this:
+import sys
+sys.path.append(str(BASE_DIR / "src"))
 from trplots.config import OUTPUT_BASE
 OUTPUT_BASE = Path(OUTPUT_BASE) / "plots" / "ancestry_plots"
 
