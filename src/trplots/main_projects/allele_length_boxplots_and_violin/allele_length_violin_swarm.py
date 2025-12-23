@@ -28,7 +28,7 @@ OUTPUT_DIR_PNG.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR_HTML.mkdir(parents=True, exist_ok=True)
 
 # --- TEST MODE ---
-TEST_MODE = False
+TEST_MODE = True
 TEST_LIMIT = 3
 SAVE_TEST_OUTPUTS = True
 

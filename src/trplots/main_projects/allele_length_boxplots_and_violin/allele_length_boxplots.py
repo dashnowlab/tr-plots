@@ -37,7 +37,7 @@ def ENSURE_DIR(*parts):
     p.mkdir(parents=True, exist_ok=True)
     return p
 
-TEST_MODE_DEFAULT = False
+TEST_MODE_DEFAULT = True
 TEST_LIMIT_DEFAULT = 3
 SAVE_TEST_OUTPUTS_DEFAULT = True
 
