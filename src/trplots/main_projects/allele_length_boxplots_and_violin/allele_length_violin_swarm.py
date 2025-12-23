@@ -7,7 +7,6 @@ from pathlib import Path
 import argparse
 
 # Pull paths from the shared config
-# NOTE: Removed MASTER_ALLELE_SPREADSHEET.
 pio.renderers.default = "browser"
 
 # Match boxplot script path logic and behavior
