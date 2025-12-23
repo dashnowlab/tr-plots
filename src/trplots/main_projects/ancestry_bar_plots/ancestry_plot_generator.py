@@ -43,6 +43,18 @@ SHEET_NAME = "Integrated Alleles"
 FIG_WIDTH = 900
 FIG_HEIGHT = 500
 
+# --- Superpopulation palette/order (shared across ancestry-aware plots)
+POP_COLOR = {
+    "All": "#ff99cc",   # pink for aggregates
+    "EUR": "#1f77b4",   # blue
+    "EAS": "#2ca02c",   # green
+    "SAS": "#9467bd",   # purple
+    "AMR": "#d62728",   # red
+    "AFR": "#ff7f0e",   # orange/yellow
+    "Unknown": "#7f7f7f",   # gray for for unknowns
+}
+SUPERPOP_ORDER_BASE = ["All", "AFR", "AMR", "EAS", "EUR", "SAS", "Unknown"]
+
 # If you have trplots.config available, keep this:
 import sys
 sys.path.append(str(BASE_DIR / "src"))
@@ -513,11 +525,11 @@ def main():
 
     df["Is pathogenic"] = df.apply(is_pathogenic_row, axis=1)
 
-    # Build superpop_order (always include all canonical populations, Unknown at bottom)
+    # Build superpop_order (always include canonical populations in standard order, Unknown at bottom)
     all_pops = sorted(set(df["Population"].dropna().astype(str).tolist()))
-    canonical = ["AFR", "AMR", "EAS", "EUR", "SAS"]
-    extras = [p for p in all_pops if p not in canonical and p not in {"All", "Unknown"}]
-    superpop_order = ["All"] + canonical + extras + ["Unknown"]
+    base_no_unknown = [p for p in SUPERPOP_ORDER_BASE if p != "Unknown"]
+    extras = [p for p in all_pops if p not in base_no_unknown and p not in {"All", "Unknown"}]
+    superpop_order = base_no_unknown + extras + ["Unknown"]
 
     # --- Generate plots ---
     made = 0

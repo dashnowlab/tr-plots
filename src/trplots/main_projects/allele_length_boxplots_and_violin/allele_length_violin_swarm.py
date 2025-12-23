@@ -40,13 +40,13 @@ PNG_SCALE = 2
 
 # --- POPULATION PALETTE (1kG-style) ---
 POP_COLOR = {
+    'All': '#ff99cc',   # pink for aggregates
     'EUR': '#1f77b4',   # blue
     'EAS': '#2ca02c',   # green
     'SAS': '#9467bd',   # purple
     'AMR': '#d62728',   # red
     'AFR': '#ff7f0e',   # orange/yellow
-    'All': '#7f7f7f',   # gray for aggregates
-    'Unknown': '#ff99cc',  # fallback for unknowns (optional)
+    'Unknown': '#7f7f7f',   # gray for for unknowns
 }
 SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
 
@@ -79,7 +79,7 @@ def create_violin_swarm(locus_df, locus_key_data):
     if locus_df.empty:
         return None
 
-    ordered_categories = counts.index.tolist()
+    ordered_categories = SUPERPOP_ORDER
     fdf = locus_df.copy()
     # Ensure SuperPop is a categorical type for correct ordering in Plotly
     fdf['SuperPop'] = pd.Categorical(fdf['SuperPop'], categories=ordered_categories, ordered=True)
@@ -120,6 +120,14 @@ def create_violin_swarm(locus_df, locus_key_data):
         font=dict(color='black'),
         xaxis=dict(title="Allele Length", ticks='outside', showline=True, linecolor='black'),
         yaxis=dict(title="", ticks='outside', showline=True, linecolor='black'),
+    )
+
+    # Ensure y-axis lists all categories (including 'Unknown') even without data
+    fig.update_yaxes(
+        categoryorder='array',
+        categoryarray=ordered_categories,
+        tickmode='array',
+        tickvals=ordered_categories
     )
 
     # ---- Fixed-position header via annotations ----
@@ -272,12 +280,9 @@ def main():
         # Get the individual counts for the current locus
         counts = locus_pop_counts.loc[(gene, disease)]
         
-        # Drop 'Unknown' and reindex to get the sorted list of present SuperPops
-        present_pops = counts.drop('Unknown', errors='ignore').index.tolist()
-        ordered_categories = [c for c in SUPERPOP_ORDER if c in present_pops]
-        
-        # Re-order counts based on SUPERPOP_ORDER for the final output
-        counts_reordered = counts.reindex(ordered_categories).dropna().astype(int)
+        # Use full SUPERPOP_ORDER and fill missing populations with 0
+        ordered_categories = SUPERPOP_ORDER
+        counts_reordered = counts.reindex(ordered_categories).fillna(0).astype(int)
 
         locus_data_map[(gene, disease)] = {
             'df': plot_df,

@@ -61,15 +61,15 @@ TOP_MARGIN = 130
 PNG_SCALE = 2
 
 POP_COLOR = {
-    'EUR': '#1f77b4',
-    'EAS': '#2ca02c',
-    'SAS': '#9467bd',
-    'AMR': '#d62728',
-    'AFR': '#ff7f0e',
-    'Unknown': '#7f7f7f',
-    'All': '#ff99cc',
+    'All': '#ff99cc',   # pink for aggregates
+    'EUR': '#1f77b4',   # blue
+    'EAS': '#2ca02c',   # green
+    'SAS': '#9467bd',   # purple
+    'AMR': '#d62728',   # red
+    'AFR': '#ff7f0e',   # orange/yellow
+    'Unknown': '#7f7f7f',   # gray for for unknowns
 }
-SUPERPOP_ORDER = ['AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown', 'All']
+SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
 
 def _norm_inh(val):
     if pd.isna(val):
@@ -166,10 +166,7 @@ def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_
     fig = go.Figure()
     locus_groups = locus_data.groupby('SuperPop', observed=True)['Allele length']
 
-    # Exclude 'Unknown' if no NaNs exist in Allele length
-    if 'Unknown' in ordered_categories:
-        if not locus_data['Allele length'].isna().any():
-            ordered_categories = [p for p in ordered_categories if p != 'Unknown']
+    # Keep 'Unknown' category present to ensure a visible bar even when empty
 
     for pop in ordered_categories:
         if pop in locus_groups.groups:
@@ -179,11 +176,9 @@ def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_
             xs = np.array([])
 
         if xs.size == 0:
-            fig.add_trace(go.Box(
-                orientation="h", y=[pop], x=None, name="",
-                marker_color=POP_COLOR.get(pop, "#7f7f7f"),
-                showlegend=False, boxpoints=False, hoverinfo="skip"
-            ))
+            # No data for this category: do not add a box trace.
+            # The y-axis already lists categories via categoryarray/tickvals,
+            # so the label will remain visible without a bar.
             continue
 
         stats = five_number_summary(xs)
@@ -217,15 +212,7 @@ def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_
     pop_desc = ', '.join(f"{pop}: {counts.get(pop, 0)}" for pop in ordered_categories)
     pop_lines = _wrap_to_lines(pop_desc, max_len=110)
 
-    missing = [c for c in ordered_categories if counts.get(c, 0) == 0]
-    if show_no_data_note and missing:
-        for cat in missing:
-            fig.add_annotation(
-                x=0.0, xref='paper', xanchor='left',
-                y=cat, yref='y', yanchor='middle',
-                text="<span style='font-size:11px;color:#888'>no data</span>",
-                showarrow=False, align='left'
-            )
+    # Do not add "no data" annotations; keep axis labels without bars for empty categories
 
     fig.update_layout(
         hovermode="closest", width=FIG_WIDTH, height=FIG_HEIGHT,
