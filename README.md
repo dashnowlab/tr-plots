@@ -85,6 +85,21 @@ python src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length
 python src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length_violin_swarm.py --test --test-limit 10
 ```
 
+5) Makefile shortcuts (optional)
+```bash
+# Run all plot generators in test mode (default TEST_LIMIT=2)
+make test-all
+
+# Override test limit
+make test-all TEST_LIMIT=5
+
+# Run specific targets
+make test-ancestry
+make test-boxplots
+make test-violin
+make test-tr
+```
+
 5) Matching VCF loci to JSON + ancestry (uses defaults from `trplots.config`)
 ```bash
 python src/trplots/matching_files/vcf_loci_matching_json_metadata_csv_ancestry.py --test --test-limit 100
@@ -125,6 +140,10 @@ python src/trplots/merging_files/merge_png_plots_to_one.py --input-dir results/p
 - Many scripts support quick `--test` runs with `--test-limit N` to validate setup before full processing.
 - Default input/output locations are configurable via [src/trplots/config.py](src/trplots/config.py).
 - Outputs are organized under [results](results) at `results/plots/<project>/{html,png}`; test runs save under `test_outputs`.
+- PNG export requires Kaleido. If PNG writes fail, install:
+```bash
+pip install -U kaleido
+```
 - If `pysam` fails to install on macOS, ensure Xcode Command Line Tools are installed (`xcode-select --install`) and try reinstalling `pysam` in the virtual env.
 
 ---
