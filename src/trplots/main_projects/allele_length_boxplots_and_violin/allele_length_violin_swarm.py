@@ -156,7 +156,7 @@ def parse_args():
     p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
     p.add_argument("--no-test", dest="test", action="store_false",
                    help="Disable test mode", default=not TEST_MODE)
-    p.add_argument("--limit", type=int, default=TEST_LIMIT,
+    p.add_argument("--test-limit", dest="test_limit", type=int, default=TEST_LIMIT,
                    help="Set the test limit for number of plots")
     p.add_argument("--data-path", type=str, default=str(DATA_PATH),
                    help="Path to allele_spreadsheet.xlsx (Excel)")
@@ -174,7 +174,7 @@ def main():
     # --- Test mode overrides ---
     global TEST_MODE, TEST_LIMIT
     TEST_MODE = args.test
-    TEST_LIMIT = args.limit
+    TEST_LIMIT = args.test_limit
 
     # Default output destinations
     output_dir_png = OUTPUT_DIR_PNG

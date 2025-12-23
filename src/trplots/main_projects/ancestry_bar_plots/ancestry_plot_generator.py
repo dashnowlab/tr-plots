@@ -367,7 +367,7 @@ def create_horizontal_bar_plot(df_raw: pd.DataFrame, gene: str, disease: str, su
         ))
 
     fig.update_layout(
-        width=900, height=500, margin=dict(t=125),
+        width=FIG_WIDTH, height=FIG_HEIGHT, margin=dict(t=125),
         bargap=0.5, plot_bgcolor="white", showlegend=False,
         font=dict(color="black"),
         title=dict(

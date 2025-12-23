@@ -35,6 +35,10 @@ TEST_MODE = True          # Quick testing: preview, limit work
 TEST_LIMIT = 2            # Number of VCF records to process in test mode
 SAVE_TEST_OUTPUTS = True  # If True, also save files when TEST_MODE is on
 
+# --- Figure sizing (standardized across all main_projects) ---
+FIG_WIDTH = 900
+FIG_HEIGHT = 500
+
 # --- File locations ---
 from trplots.config import VCF_PATH, JSON_PATH, OUTPUT_BASE  
 
@@ -406,7 +410,7 @@ def main(args=None):
             add_range_marker_or_line(fig, pathogenic_min, pathogenic_max, "Pathogenic", label_positions, chart_width_px=fig.layout.width, x_span=x_span, level=pathogenic_level)
 
         fig.update_layout(
-            width=900, height=500, margin=dict(t=125),
+            width=FIG_WIDTH, height=FIG_HEIGHT, margin=dict(t=125),
             xaxis_title="Repeat Count", yaxis_title="Allele Count",
             plot_bgcolor='white'
         )
