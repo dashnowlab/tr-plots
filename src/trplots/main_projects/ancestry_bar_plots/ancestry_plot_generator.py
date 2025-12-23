@@ -29,7 +29,7 @@ pio.renderers.default = "browser"
 # Defaults
 # ----------------------------
 DEFAULT_TEST_MODE = True
-DEFAULT_TEST_LIMIT = 3
+DEFAULT_TEST_LIMIT = 2
 DEFAULT_SAVE_TEST_OUTPUTS = False
 
 # Repository base directory (go up from this file to repo root)

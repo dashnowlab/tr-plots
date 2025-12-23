@@ -28,7 +28,7 @@ OUTPUT_DIR_HTML.mkdir(parents=True, exist_ok=True)
 
 # --- TEST MODE ---
 TEST_MODE = True
-TEST_LIMIT = 3
+TEST_LIMIT = 2
 SAVE_TEST_OUTPUTS = True
 
 # --- Figure sizing (standardized) ---

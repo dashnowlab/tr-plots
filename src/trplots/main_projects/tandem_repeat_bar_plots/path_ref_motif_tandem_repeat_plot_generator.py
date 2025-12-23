@@ -32,7 +32,7 @@ pio.renderers.default = "browser"
 
 # --- TEST MODE ---
 TEST_MODE = True          # Quick testing: preview, limit work
-TEST_LIMIT = 3            # Number of VCF records to process in test mode
+TEST_LIMIT = 2            # Number of VCF records to process in test mode
 SAVE_TEST_OUTPUTS = True  # If True, also save files when TEST_MODE is on
 
 # --- File locations ---
@@ -253,6 +253,7 @@ def main(args=None):
     total_loci = 0
     matched_vcf_loci = 0
     skipped_loci = []
+    previewed_count = 0
     grouped = master_df.groupby([chrom_col, pos_col], sort=False)
     start_time = time.perf_counter()
     for (chrom, pos), group in grouped:
@@ -422,6 +423,7 @@ def main(args=None):
                 fig.show(renderer="browser")
             except Exception:
                 pass
+            previewed_count += 1
             if SAVE_TEST_OUTPUTS:
                 fig.write_html(html_path)
                 orig_title = None
@@ -435,6 +437,8 @@ def main(args=None):
                 finally:
                     if orig_title is not None:
                         fig.update_layout(title_text=orig_title)
+            if previewed_count >= TEST_LIMIT:
+                break
         else:
             fig.write_html(html_path)
             orig_title = None
