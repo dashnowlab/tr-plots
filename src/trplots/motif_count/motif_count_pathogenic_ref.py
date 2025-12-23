@@ -34,7 +34,7 @@ VCF_FILE = (
 LOCI_JSON = BASE_DIR / "data" / "other_data" / "strchive-loci.json"
 
 # Output root directory
-OUT_ROOT = BASE_DIR / "results" / "motif_counts_pathogenic_ref_v3"
+OUT_ROOT = BASE_DIR / "results" / "motif_counts_pathogenic_ref"
 OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
 # ====== Optional: pandas for Excel output ======
@@ -453,7 +453,7 @@ def process_vcf(
     out_prefix.parent.mkdir(parents=True, exist_ok=True)
     # write without the ".alleles" suffix and use the CLI-provided prefix.
     write_table(out_prefix, allele_rows, name=None)
-    print(f"✅ Saved allele-level motif data to: {out_prefix}.csv/.xlsx")
+    print(f"--- Saved allele-level motif data to: {out_prefix}.csv/.xlsx ---")
 
 # ---------- CLI ----------
 if __name__ == "__main__":
