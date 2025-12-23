@@ -22,7 +22,7 @@ from pathlib import Path
 # This spreadsheet contains per-allele data including repeat counts, genes,
 # diseases, inheritance models, and pathogenic thresholds.
 ALLELE_SPREADSHEET_PATH = "/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet.xlsx"
-OUTPUT_PATH = Path(ALLELE_SPREADSHEET_PATH).parent / "affected_carrier_count_per_loci_v1.xlsx"
+OUTPUT_PATH = Path(ALLELE_SPREADSHEET_PATH).parent / "affected_carrier_count_per_loci.xlsx"
 
 df = pd.read_excel(ALLELE_SPREADSHEET_PATH, engine="openpyxl")
 

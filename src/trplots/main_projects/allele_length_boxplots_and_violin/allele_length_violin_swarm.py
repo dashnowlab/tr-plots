@@ -8,38 +8,35 @@ import argparse
 
 # Pull paths from the shared config
 # NOTE: Removed MASTER_ALLELE_SPREADSHEET.
-from trplots.config import (
-    OTHER_DATA, # <--- Used to construct the input path
-    ENSURE_DIR,
-    ALLELE_LENGTH_PLOTS_OUTPUT,
-)
-
-# make Plotly open figures in the browser by default
 pio.renderers.default = "browser"
 
+# Match boxplot script path logic and behavior
+BASE_DIR = Path("/Users/annelisethorn/Documents/github/tr-plots")
+
+# --- Defaults: input spreadsheet and sheet name ---
+DATA_PATH = BASE_DIR / "data" / "other_data" / "allele_spreadsheet.xlsx"
+SHEET_NAME = "Integrated Alleles"
+
+# --- Output directories ---
+OUTPUT_ROOT = BASE_DIR / "results" / "plots" / "allele_length_violin_swarm_plots"
+OUTPUT_DIR_PNG  = OUTPUT_ROOT / "png"
+OUTPUT_DIR_HTML = OUTPUT_ROOT / "html"
+TEST_OUTPUT_DIR = OUTPUT_ROOT / "test_outputs"
+
+# Ensure the standard output dirs exist up front
+OUTPUT_DIR_PNG.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR_HTML.mkdir(parents=True, exist_ok=True)
+
 # --- TEST MODE ---
-TEST_MODE = True              # Toggle this flag for quick testing (preview only)
-TEST_LIMIT = 3                 # How many (gene, disease) plots to generate in test mode
-SAVE_TEST_OUTPUTS = False      # Toggle saving plots when in test mode
+TEST_MODE = False
+TEST_LIMIT = 3
+SAVE_TEST_OUTPUTS = True
 
 # --- Figure sizing (standardized) ---
 FIG_WIDTH = 900
 FIG_HEIGHT = 500
-TOP_MARGIN = 130               # fixed header space (annotations), keeps plot area aligned
+TOP_MARGIN = 130
 PNG_SCALE = 2
-
-# --- File locations (via config) ---
-# UPDATED: Revert to previous file name, assuming it's in the OTHER_DATA directory.
-if OTHER_DATA is None:
-    raise FileNotFoundError("The 'OTHER_DATA' path is missing in trplots.config. Cannot locate input CSV.")
-DATA_CSV = OTHER_DATA / "83_loci_503_samples_withancestrycolumns.csv"
-
-
-# Default output roots under results/plots/allele_length_boxplots/violin_swarm/...
-OUTPUT_ROOT = ALLELE_LENGTH_PLOTS_OUTPUT / "violin_swarm"
-# ENSURE_DIR is correctly imported and used below.
-OUTPUT_DIR_PNG  = ALLELE_LENGTH_PLOTS_OUTPUT / "violin_swarm" / "png"
-OUTPUT_DIR_HTML = ALLELE_LENGTH_PLOTS_OUTPUT / "violin_swarm" / "html"
 
 
 # --- POPULATION PALETTE (1kG-style) ---
@@ -75,21 +72,15 @@ def _wrap_to_lines(s: str, max_len: int = 110):
     return lines
 
 def create_violin_swarm(locus_df, locus_key_data):
-    """
-    Build a horizontal violin plot with overlaid points ("swarm")
-    using pre-calculated data.
-    """
+    """Build a horizontal violin plot with overlaid points (swarm) using pre-calculated data."""
     gene, disease = locus_key_data['key']
     counts = locus_key_data['counts']
     inheritance = locus_key_data['inheritance']
-    
+
     if locus_df.empty:
         return None
 
-    # Get ordered categories from pre-calculated counts
     ordered_categories = counts.index.tolist()
-    
-    # Prepare dataframe for plotting
     fdf = locus_df.copy()
     # Ensure SuperPop is a categorical type for correct ordering in Plotly
     fdf['SuperPop'] = pd.Categorical(fdf['SuperPop'], categories=ordered_categories, ordered=True)
@@ -165,14 +156,16 @@ def parse_args():
     p = argparse.ArgumentParser(description="Allele length violin+swarm generator")
     p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
     p.add_argument("--no-test", dest="test", action="store_false",
-                   help="Disable test mode", default=not TEST_MODE) 
+                   help="Disable test mode", default=not TEST_MODE)
     p.add_argument("--limit", type=int, default=TEST_LIMIT,
                    help="Set the test limit for number of plots")
-    p.add_argument("--data-csv", type=str, default=str(DATA_CSV),
-                   help="Override the input CSV file")
-    p.add_argument("--output-dir", type=str, default=str(OUTPUT_ROOT),
-                   help="Override the output directory")
-    p.set_defaults(test=TEST_MODE) 
+    p.add_argument("--data-path", type=str, default=str(DATA_PATH),
+                   help="Path to allele_spreadsheet.xlsx (Excel)")
+    p.add_argument("--sheet", type=str, default=SHEET_NAME,
+                   help="Excel sheet name (default: 'Integrated Alleles')")
+    p.add_argument("--output-dir", type=str, default=None,
+                   help="If provided, write all outputs (PNG/HTML) here instead of the default png/html dirs")
+    p.set_defaults(test=TEST_MODE)
     return p.parse_args()
 
 # --- Main function: move top-level processing here ---
@@ -180,33 +173,52 @@ def main():
     args = parse_args()
 
     # --- Test mode overrides ---
-    global TEST_MODE, TEST_LIMIT, OUTPUT_ROOT, OUTPUT_DIR_PNG, OUTPUT_DIR_HTML
+    global TEST_MODE, TEST_LIMIT
     TEST_MODE = args.test
     TEST_LIMIT = args.limit
-    
-    # Update paths using ENSURE_DIR from the config
-    OUTPUT_ROOT = Path(args.output_dir)
-    
-    # We must ensure the actual output directories exist using the config's helper
-    if not TEST_MODE:
-        # Use ENSURE_DIR to guarantee these paths exist if not in test mode
-        base_parts = list(ALLELE_LENGTH_PLOTS_OUTPUT.parts[len(ALLELE_LENGTH_PLOTS_OUTPUT.parents[1].parts):])
-        OUTPUT_DIR_PNG = ENSURE_DIR(*(base_parts + ["violin_swarm", "png"]))
-        OUTPUT_DIR_HTML = ENSURE_DIR(*(base_parts + ["violin_swarm", "html"]))
+
+    # Default output destinations
+    output_dir_png = OUTPUT_DIR_PNG
+    output_dir_html = OUTPUT_DIR_HTML
+    if args.output_dir:
+        outdir = Path(args.output_dir)
+        outdir.mkdir(parents=True, exist_ok=True)
+        output_dir_png = outdir
+        output_dir_html = outdir
+
+
+    # Data Excel override (pathlib.Path compatible)
+    data_xlsx = Path(args.data_path)
+    sheet_name = args.sheet
+
+    # Load data from the integrated spreadsheet
+    print(f"Loading data from: {data_xlsx} [sheet: {sheet_name}]")
+    needed_cols = [
+        'Gene', 'Disease', 'SuperPop', 'Allele length', 'Inheritance',
+        'Pathogenic min', 'Pathogenic max', 'Sample ID', 'Sample ID Cleaned'
+    ]
+    df = pd.read_excel(
+        data_xlsx,
+        sheet_name=sheet_name,
+        usecols=lambda c: True if c in needed_cols else False,
+        engine="openpyxl"
+    )
+
+    # Prefer cleaned sample IDs if available
+    if 'Sample ID Cleaned' in df.columns:
+        df.rename(columns={'Sample ID Cleaned': 'SampleIDForCounts'}, inplace=True)
+    elif 'Sample ID' in df.columns:
+        df.rename(columns={'Sample ID': 'SampleIDForCounts'}, inplace=True)
     else:
-        # If test mode is set, use the "test_outputs" folder and ensure it exists
-        OUTPUT_ROOT = ENSURE_DIR("plots", "allele_length_boxplots", "violin_swarm", "test_outputs")
-        OUTPUT_DIR_PNG = OUTPUT_ROOT
-        OUTPUT_DIR_HTML = OUTPUT_ROOT
+        df['SampleIDForCounts'] = pd.NA
 
-
-    # Data CSV override (pathlib.Path compatible)
-    global DATA_CSV
-    DATA_CSV = Path(args.data_csv)
-
-    # Load data
-    print(f"Loading data from: {DATA_CSV}")
-    df = pd.read_csv(DATA_CSV)
+    # Coerce numeric fields and clean lengths
+    df['Allele length'] = pd.to_numeric(df.get('Allele length'), errors='coerce')
+    df.loc[~pd.Series(pd.notna(df['Allele length'])), 'Allele length'] = pd.NA
+    df.loc[df['Allele length'] <= 0, 'Allele length'] = pd.NA
+    for col in ['Pathogenic min', 'Pathogenic max']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
 
     # --- Add 'All' population (Vectorized) ---
     df_all = df.assign(SuperPop="All")
@@ -216,17 +228,20 @@ def main():
     df['SuperPop'] = pd.Categorical(df['SuperPop'], categories=SUPERPOP_ORDER, ordered=True)
 
     # --- Flag pathogenic individuals using thresholds (Vectorized) ---
-    df['Is pathogenic'] = (
-        (df['Allele length'] >= df['Pathogenic min']) &
-        (df['Allele length'] <= df['Pathogenic max'])
-    )
+    if {'Pathogenic min', 'Pathogenic max'}.issubset(df.columns):
+        df['Is pathogenic'] = (
+            (df['Allele length'] >= df['Pathogenic min']) &
+            (df['Allele length'] <= df['Pathogenic max'])
+        )
+    else:
+        df['Is pathogenic'] = pd.NA
 
     # --- Pre-calculate all data outside the plot loop (Performance optimization) ---
 
     # 1. Total unique individuals per Locus/SuperPop (Required for header)
     locus_pop_counts = (
-        df.groupby(['Gene', 'Disease', 'SuperPop'], observed=True)['Sample ID']
-          .nunique()
+        df.groupby(['Gene', 'Disease', 'SuperPop'], observed=True)['SampleIDForCounts']
+          .nunique(dropna=True)
           .rename('total_individuals')
     )
     
@@ -283,15 +298,16 @@ def main():
         safe_gene = re.sub(r'[\\/]', '_', gene)
         safe_disease = re.sub(r'[\\/]', '_', disease)
 
-        png_path = (OUTPUT_DIR_PNG / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.png")
-        html_path = (OUTPUT_DIR_HTML / f"{safe_gene}_{safe_disease}_allele_length_violin_swarm.html")
+        png_path = (output_dir_png / f"{safe_gene}_{safe_disease}.png")
+        html_path = (output_dir_html / f"{safe_gene}_{safe_disease}.html")
 
         if TEST_MODE:
             print(f"Previewing: {gene} / {disease}")
             fig.show(renderer="browser")
             if SAVE_TEST_OUTPUTS:
-                fig.write_html(str(html_path))
-                fig.write_image(str(png_path), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
+                TEST_OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+                fig.write_html(str(TEST_OUTPUT_DIR / html_path.name))
+                fig.write_image(str(TEST_OUTPUT_DIR / png_path.name), width=FIG_WIDTH, height=FIG_HEIGHT, scale=PNG_SCALE)
             printed += 1
             if printed >= TEST_LIMIT:
                 break

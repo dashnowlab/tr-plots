@@ -14,7 +14,8 @@ pio.renderers.default = "browser"
 
 BASE_DIR = Path("/Users/annelisethorn/Documents/github/tr-plots")
 
-DATA_PATH = BASE_DIR / "data" / "other_data" / "master_allele_spreadsheet.xlsx"
+# Default to the integrated spreadsheet produced by allele_spreadsheet.py
+DATA_PATH = BASE_DIR / "data" / "other_data" / "allele_spreadsheet.xlsx"
 SHEET_NAME = "Integrated Alleles"
 
 # --- Output directories (subfolders for PNG and HTML) ---
