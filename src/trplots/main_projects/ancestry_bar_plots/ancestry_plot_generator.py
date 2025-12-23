@@ -40,13 +40,12 @@ def parse_args():
     p.add_argument("--output-png", dest="output_png", type=str, default=None, help="Override PNG output directory")
     return p.parse_args()
 
-from trplots.config import SEQ_DATA, OTHER_DATA, OUTPUT_BASE
+from trplots.config import OTHER_DATA, OUTPUT_BASE
 from pathlib import Path
 
 # --- File locations ---
-SEQ_DATA_PATH = SEQ_DATA / "83_loci_503_samples" / "83_loci_503_samples_with_sex.xlsx"
-PORE_PATH = OTHER_DATA / "1kgp_ont_500_summary_sample_id_pore.csv"
-OUTPUT_BASE = Path(OUTPUT_BASE) / "plots" / "ancestry_plot_generator"
+ALLELE_SPREADSHEET_PATH = "/Users/annelisethorn/Documents/github/tr-plots/data/other_data/allele_spreadsheet.xlsx"
+OUTPUT_BASE = Path(OUTPUT_BASE) / "plots" / "new_ancestry_plot_generator"
 
 if TEST_MODE:
     # In test mode: just one folder, no subfolders
@@ -62,26 +61,63 @@ else:
     os.makedirs(OUTPUT_HTML_DIR, exist_ok=True)
     os.makedirs(OUTPUT_PNG_DIR,  exist_ok=True)
 
-# --- Load main dataset ---
-df = pd.read_excel(SEQ_DATA_PATH)
+# --- Load allele spreadsheet ---
+df = pd.read_excel(ALLELE_SPREADSHEET_PATH, engine="openpyxl")
 
-# --- Merge pore information (R9 / R10) ---
-pore_df = pd.read_csv(PORE_PATH)
-pore_df['Base Sample ID'] = pore_df['Sample_ID'].apply(lambda x: x.split('-')[0] if isinstance(x, str) else x)
-df['Base Sample ID'] = df['Sample ID'].apply(lambda x: x.split('-')[0])
-df = df.merge(pore_df[['Base Sample ID', 'Pore']], on='Base Sample ID', how='left')
+# --- Normalize column names (case-insensitive lookup) ---
+cols_lower = {c.lower(): c for c in df.columns}
+def col(*names):
+    for n in names:
+        if n.lower() in cols_lower:
+            return cols_lower[n.lower()]
+    return None
 
-# --- Use ancestry information ---
-if 'SuperPop' in df.columns:
-    df['Cleaned population description'] = df['SuperPop']
-elif 'Cleaned population description' not in df.columns:
-    raise KeyError("Missing both 'SuperPop' and 'Cleaned population description' columns.")
+# Map required columns
+sample_id_col = col("Sample ID", "Sample_ID", "sample_id")
+gene_col = col("Gene")
+disease_col = col("Disease")
+repeat_col = col("Repeat Count", "RepeatCount", "repeat_count")
+pathogenic_min_col = col("Pathogenic min", "Pathogenic_min", "pathogenic_min")
+pathogenic_max_col = col("Pathogenic max", "Pathogenic_max", "pathogenic_max")
+inheritance_col = col("Inheritance")
+sex_col = col("Sex")
+population_col = col("Population", "Cleaned population description", "Ancestry")
+pore_col = col("Pore")
+
+if not all([sample_id_col, gene_col, disease_col, repeat_col]):
+    raise SystemExit(f"Spreadsheet missing required columns. Found: {list(df.columns)}")
+
+# Rename columns for consistency with downstream code
+df = df.rename(columns={
+    sample_id_col: "Sample ID",
+    gene_col: "Gene",
+    disease_col: "Disease",
+    repeat_col: "Repeat count",
+    pathogenic_min_col: "Pathogenic min",
+    pathogenic_max_col: "Pathogenic max",
+    inheritance_col: "Inheritance",
+    sex_col: "Sex",
+    population_col: "Cleaned population description",
+    pore_col: "Pore"
+})
+
+# Fill missing Pore/Sex/Population with defaults
+if "Pore" not in df.columns or df["Pore"].isna().all():
+    df["Pore"] = "All Types"
+if "Sex" not in df.columns or df["Sex"].isna().all():
+    df["Sex"] = "All Sexes"
+if "Cleaned population description" not in df.columns or df["Cleaned population description"].isna().all():
+    df["Cleaned population description"] = "All"
+
+df["Pore"] = df["Pore"].fillna("All Types").astype(str)
+df["Sex"] = df["Sex"].fillna("All Sexes").astype(str)
+df["Cleaned population description"] = df["Cleaned population description"].fillna("All").astype(str)
 
 # --- Flag pathogenic individuals (based on repeat counts) ---
 df['Is pathogenic'] = df.apply(
     lambda row: (
-        row['Pathogenic min'] <= row['Repeat count'] <= row['Pathogenic max']
-        if pd.notna(row['Pathogenic min']) and pd.notna(row['Pathogenic max']) and pd.notna(row['Repeat count'])
+        row.get('Pathogenic min') <= row.get('Repeat count') <= row.get('Pathogenic max')
+        if (pd.notna(row.get('Pathogenic min')) and pd.notna(row.get('Pathogenic max')) and pd.notna(row.get('Repeat count')))
         else np.nan
     ),
     axis=1
@@ -97,25 +133,25 @@ def clean_inheritance(x):
             return np.nan
     return x
 
-mask = df['Inheritance'].astype(str).str.startswith('[')
-df.loc[mask, 'Inheritance'] = df.loc[mask, 'Inheritance'].apply(clean_inheritance)
+if "Inheritance" in df.columns:
+    mask = df['Inheritance'].astype(str).str.startswith('[')
+    df.loc[mask, 'Inheritance'] = df.loc[mask, 'Inheritance'].apply(clean_inheritance)
+else:
+    df["Inheritance"] = "Unknown"
 
 # --- Standardize sex labels ---
-if 'Sex' not in df.columns:
-    df['Sex'] = 'All Sexes'
-else:
-    sex_map = {
-        'm': 'Male', 'male': 'Male', 'M': 'Male', 'MALE': 'Male',
-        'f': 'Female', 'female': 'Female', 'F': 'Female', 'FEMALE': 'Female',
-        'u': 'Unknown', 'unknown': 'Unknown', 'U': 'Unknown', 'UNK': 'Unknown', 'Unk': 'Unknown'
-    }
-    df['Sex'] = (
-        df['Sex']
-        .astype(str)
-        .str.strip()
-        .map(lambda s: sex_map.get(s, s))
-    )
-    df.loc[df['Sex'].isin(['', 'nan', 'None']), 'Sex'] = 'Unknown'
+sex_map = {
+    'm': 'Male', 'male': 'Male', 'M': 'Male', 'MALE': 'Male',
+    'f': 'Female', 'female': 'Female', 'F': 'Female', 'FEMALE': 'Female',
+    'u': 'Unknown', 'unknown': 'Unknown', 'U': 'Unknown', 'UNK': 'Unknown', 'Unk': 'Unknown'
+}
+df['Sex'] = (
+    df['Sex']
+    .astype(str)
+    .str.strip()
+    .map(lambda s: sex_map.get(s, s))
+)
+df.loc[df['Sex'].isin(['', 'nan', 'None']), 'Sex'] = 'Unknown'
 
 # --- Aggregate counts per Disease / Gene / Population / Pore / Sex ---
 total_count = df.groupby(
