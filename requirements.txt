@@ -1,0 +1,12 @@
+# Core data/plotting
+pandas>=2.0
+numpy>=1.24
+plotly>=5.20
+statsmodels>=0.14
+openpyxl>=3.1
+
+# Genomics file parsing
+pysam>=0.22
+
+# HTML merging utilities
+beautifulsoup4>=4.12
