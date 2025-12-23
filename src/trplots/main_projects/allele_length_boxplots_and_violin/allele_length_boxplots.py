@@ -42,6 +42,16 @@ TEST_LIMIT_DEFAULT = 2
 SAVE_TEST_OUTPUTS_DEFAULT = True
 
 def parse_args():
+    """Define CLI flags for running the boxplot generator.
+
+    Flags:
+    - --test / --no-test: Enable/disable test mode (previews only, limited work)
+    - --test-limit: Number of loci to preview in test mode
+    - --save-test-outputs: If set, also write HTML/PNG during test runs
+    - --data-path: Path to the integrated allele spreadsheet (Excel)
+    - --sheet: Name of the Excel sheet to read (default: "Integrated Alleles")
+    - --output-dir: If provided, write outputs to this single directory
+    """
     p = argparse.ArgumentParser(description="Allele length boxplot generator")
     p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
     p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
@@ -70,8 +80,15 @@ POP_COLOR = {
     'Unknown': '#7f7f7f',   # gray for for unknowns
 }
 SUPERPOP_ORDER = ['All', 'AFR', 'AMR', 'EAS', 'EUR', 'SAS', 'Unknown']
+"""Canonical display order of populations.
+The y-axis is constructed from this list to ensure labels are present
+even for categories with no data (e.g., 'Unknown')."""
 
 def _norm_inh(val):
+    """Normalize the inheritance field to a single mode.
+
+    Accepts strings or list-like strings (e.g., "['AD', 'AR']") and returns
+    one of {AD, AR, XD, XR}, otherwise 'Unknown'."""
     if pd.isna(val):
         return 'Unknown'
     modes = {'AD', 'AR', 'XD', 'XR'}
@@ -91,6 +108,10 @@ def _norm_inh(val):
     return first if first in modes else 'Unknown'
 
 def _wrap_to_lines(s: str, max_len: int = 110):
+    """Wrap a comma-separated description to multiple short lines.
+
+    Used for header subtitles where long lists of populations can overflow.
+    """
     parts = [p.strip() for p in s.split(",")]
     lines, line = [], ""
     for seg in parts:
@@ -108,6 +129,11 @@ def _wrap_to_lines(s: str, max_len: int = 110):
     return lines
 
 def _make_locus_vec(df: pd.DataFrame) -> pd.Series:
+    """Produce a human-readable locus identifier for each row.
+
+    Tries Chromosome:Position (adds 'Chr' if needed). Falls back to 'Disease ID'
+    when positions are missing, or a composite 'Gene|Disease|Chrom:Pos' string.
+    """
     chrom = df.get('Chromosome')
     pos = df.get('Position')
     disease_id = df.get('Disease ID')
@@ -140,7 +166,14 @@ def _make_locus_vec(df: pd.DataFrame) -> pd.Series:
     return pd.Series(locus, index=df.index)
 
 def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_points=False):
+    """Create a horizontal boxplot per population for a single locus.
+
+    - Uses custom five-number summary to avoid NaNs and derive whiskers/outliers.
+    - Only draws a box for categories that have data; empty categories still
+        appear on the y-axis via explicit category settings.
+    """
     def five_number_summary(x):
+        """Compute (Q1, Median, Q3, lower whisker, upper whisker, outliers)."""
         x = np.asarray(x, dtype=float)
         x = x[~np.isnan(x)]
         if x.size == 0:
@@ -166,7 +199,7 @@ def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_
     fig = go.Figure()
     locus_groups = locus_data.groupby('SuperPop', observed=True)['Allele length']
 
-    # Keep 'Unknown' category present to ensure a visible bar even when empty
+    # Keep 'Unknown' category label present even when no data for it
 
     for pop in ordered_categories:
         if pop in locus_groups.groups:
@@ -176,9 +209,8 @@ def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_
             xs = np.array([])
 
         if xs.size == 0:
-            # No data for this category: do not add a box trace.
-            # The y-axis already lists categories via categoryarray/tickvals,
-            # so the label will remain visible without a bar.
+            # No data: skip drawing a box trace. The y-axis still lists this
+            # category, so the label remains visible without a bar.
             continue
 
         stats = five_number_summary(xs)
@@ -212,7 +244,7 @@ def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_
     pop_desc = ', '.join(f"{pop}: {counts.get(pop, 0)}" for pop in ordered_categories)
     pop_lines = _wrap_to_lines(pop_desc, max_len=110)
 
-    # Do not add "no data" annotations; keep axis labels without bars for empty categories
+    # Do not add "no data" annotations; empty categories are implied by labels
 
     fig.update_layout(
         hovermode="closest", width=FIG_WIDTH, height=FIG_HEIGHT,
@@ -245,6 +277,15 @@ def create_boxplot_all(locus_data, locus_metadata, show_no_data_note=True, show_
     return fig
 
 def main(args=None):
+    """Entry point.
+
+    Workflow:
+    1) Parse flags and prepare output directories.
+    2) Read the integrated Excel spreadsheet (selected columns only).
+    3) Build locus identifiers and filter unusable rows.
+    4) Aggregate counts and per-population data per (Gene, Disease, Locus).
+    5) Create and preview/save plots according to test flags.
+    """
     args = parse_args()
 
     test_mode = args.test

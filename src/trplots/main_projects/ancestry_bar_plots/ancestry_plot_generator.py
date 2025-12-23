@@ -65,6 +65,15 @@ OUTPUT_BASE = Path(OUTPUT_BASE) / "plots" / "ancestry_plots"
 # CLI args
 # ----------------------------
 def parse_args():
+    """
+    Define and parse CLI arguments.
+    Flags:
+    - --test / --no-test: enable/disable test mode
+    - --test-limit: number of (gene,disease) plots to preview in test mode
+    - --save-test-outputs: save files while in test mode
+    - --allele-spreadsheet: path to the integrated allele spreadsheet
+    - --output-dir: override base output directory
+    """
     p = argparse.ArgumentParser(description="Ancestry bar plot generator")
     p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
     p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
@@ -87,6 +96,11 @@ def parse_args():
 # Helpers: column lookup + cleaning
 # ----------------------------
 def build_col_lookup(df: pd.DataFrame):
+    """
+    Build a case-insensitive column resolver for flexible spreadsheets.
+    Returns a function `col(*names)` that returns the exact column name
+    from the DataFrame if any of the provided aliases are present.
+    """
     cols_lower = {c.lower().strip(): c for c in df.columns}
     def col(*names):
         for n in names:
@@ -97,6 +111,11 @@ def build_col_lookup(df: pd.DataFrame):
     return col
 
 def clean_inheritance(x):
+    """
+    Normalize inheritance strings, handling list-like strings such as
+    "['AD', 'AR']" by selecting the first entry. Returns a single label
+    (e.g., 'AD') or NaN on failure.
+    """
     # Handles "['AD']" or "['AD', 'AR']" etc
     if isinstance(x, str):
         s = x.strip()
@@ -111,6 +130,10 @@ def clean_inheritance(x):
     return x
 
 def normalize_sex(x):
+    """
+    Coerce free-text sex values into 'Male', 'Female', or 'Unknown'.
+    Accepts common abbreviations (m/f) and missing values.
+    """
     if pd.isna(x):
         return "Unknown"
     s = str(x).strip().lower()
@@ -122,6 +145,10 @@ def normalize_sex(x):
     return sex_map.get(s, str(x).strip() if str(x).strip() else "Unknown")
 
 def normalize_pore(x):
+    """
+    Normalize sequencing pore identifiers into 'R9', 'R10', or 'All Types'.
+    Leaves other values as-is for future bucketing.
+    """
     # Force into R9 / R10 / All Types
     if pd.isna(x):
         return "All Types"
@@ -171,6 +198,10 @@ def normalize_population(x):
 
 
 def binomial_ci(x, n, confidence=0.95):
+    """
+    Compute Wilson score interval for `x` successes out of `n` trials.
+    Returns (lower%, upper%) as floats in percent space.
+    """
     if n <= 0:
         return (0.0, 0.0)
     lower, upper = proportion.proportion_confint(x, n, alpha=1-confidence, method="wilson")
@@ -256,6 +287,10 @@ def compute_group_summary(df_gene: pd.DataFrame, inheritance: str, superpop_orde
 
 
 def build_subtitle_counts(summary_df: pd.DataFrame) -> str:
+    """
+    Build a compact HTML string showing total individuals per population.
+    Line-wraps to avoid overly wide titles in the figure.
+    """
     parts = [f"{row['Population']}: {int(row['total_count'])}" for _, row in summary_df.iterrows()]
     # Wrap roughly every ~100 chars
     lines, cur = [], ""
@@ -271,6 +306,14 @@ def build_subtitle_counts(summary_df: pd.DataFrame) -> str:
 
 
 def create_horizontal_bar_plot(df_raw: pd.DataFrame, gene: str, disease: str, superpop_order: list[str]):
+        """
+        Create a horizontal bar plot of pathogenic genotype percentages
+        per population for a given `gene`/`disease` pair.
+        - Uses dropdown to switch Pore type (All Types / R9 / R10)
+        - Y-axis category order enforces presence of 'Unknown' label even
+            when counts are zero (no visible bar is drawn for zero values).
+        Returns a Plotly Figure or None if data is insufficient.
+        """
     df_gd = df_raw[(df_raw["Gene"] == gene) & (df_raw["Disease"] == disease)].copy()
     if df_gd.empty:
         return None
@@ -435,6 +478,11 @@ def create_horizontal_bar_plot(df_raw: pd.DataFrame, gene: str, disease: str, su
 # Main
 # ----------------------------
 def main():
+    """
+    Entry point: loads spreadsheet, normalizes fields, computes per-population
+    summaries, and writes HTML/PNG outputs. In test mode, previews a limited
+    number of plots and writes to 'test_outputs'.
+    """
     args = parse_args()
 
     test_mode = bool(args.test)

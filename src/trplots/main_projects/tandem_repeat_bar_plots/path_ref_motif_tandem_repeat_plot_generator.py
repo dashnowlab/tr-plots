@@ -173,6 +173,14 @@ def _longest_pure_repeat_count(sequence: Optional[str], motif: Optional[str]) ->
     return float(best_units) if best_units > 0 else 0.0
 
 def parse_args():
+    """
+    Define and parse CLI arguments for the tandem repeat plot generator.
+    Flags:
+    - --test / --no-test: enable/disable test mode
+    - --test-limit: number of loci to preview in test mode
+    - --save-test-outputs: save files while in test mode
+    - --output-dir: override base output directory
+    """
     p = argparse.ArgumentParser(description="Tandem repeat plot generator")
     p.add_argument("--test", dest="test", action="store_true", help="Enable test mode")
     p.add_argument("--no-test", dest="test", action="store_false", help="Disable test mode")
@@ -184,6 +192,12 @@ def parse_args():
     return p.parse_args()
 
 def main(args=None):
+    """
+    Entry point: loads integrated allele spreadsheet, matches loci to JSON
+    metadata, derives repeat counts per allele/motif, and renders stacked
+    histograms with threshold markers. In test mode, previews a limited
+    number of loci and saves to 'test_outputs'.
+    """
     if args is None:
         args = parse_args()
     global TEST_MODE, TEST_LIMIT, SAVE_TEST_OUTPUTS
