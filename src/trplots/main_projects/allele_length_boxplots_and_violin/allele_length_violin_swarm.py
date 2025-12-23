@@ -185,6 +185,10 @@ def main():
         output_dir_png = outdir
         output_dir_html = outdir
 
+    # Test mode status header for consistency
+    if TEST_MODE:
+        print(f"--- Test mode ON (limit={TEST_LIMIT}, save_test_outputs={SAVE_TEST_OUTPUTS}) ---")
+
 
     # Data Excel override (pathlib.Path compatible)
     data_xlsx = Path(args.data_path)

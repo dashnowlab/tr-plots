@@ -440,8 +440,8 @@ def main():
         output_png_dir = output_dir
     else:
         output_dir = out_base
-        output_html_dir = output_dir / "HTML"
-        output_png_dir = output_dir / "PNG"
+        output_html_dir = output_dir / "html"
+        output_png_dir = output_dir / "png"
 
     output_html_dir.mkdir(parents=True, exist_ok=True)
     output_png_dir.mkdir(parents=True, exist_ok=True)

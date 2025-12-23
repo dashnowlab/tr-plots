@@ -36,15 +36,12 @@ pip install -r requirements.txt
 	- Inputs: VCF (`--vcf`), loci JSON (`--loci-json`), sample summary CSV (`--sample-csv`), 1kGP sample-info TXT (`--kgp-sample-info`).
 	- Output: Excel at `data/other_data/allele_spreadsheet.xlsx` (default, override with `--output`).
 
-- **2. Generate plots**: Creates interactive HTML and PNG plots under `results/plots/<project>`.
+**2. Generate plots**: Creates interactive HTML and PNG plots under `results/plots/<project>`.
 	- Ancestry bars: [src/trplots/main_projects/ancestry_bar_plots/ancestry_plot_generator.py](src/trplots/main_projects/ancestry_bar_plots/ancestry_plot_generator.py)
-	- Tandem repeat distributions: 
-		- [src/trplots/main_projects/tandem_repeat_bar_plots/new_tandem_repeat.py](src/trplots/main_projects/tandem_repeat_bar_plots/new_tandem_repeat.py)
-		- [src/trplots/main_projects/tandem_repeat_bar_plots/tandem_repeat_plot_generator.py](src/trplots/main_projects/tandem_repeat_bar_plots/tandem_repeat_plot_generator.py)
-		- [src/trplots/main_projects/tandem_repeat_bar_plots/path_ref_motif_tandem_repeat_plot_generator.py](src/trplots/main_projects/tandem_repeat_bar_plots/path_ref_motif_tandem_repeat_plot_generator.py)
+	- Tandem repeat distributions: [src/trplots/main_projects/tandem_repeat_bar_plots/path_ref_motif_tandem_repeat_plot_generator.py](src/trplots/main_projects/tandem_repeat_bar_plots/path_ref_motif_tandem_repeat_plot_generator.py)
 	- Allele length box/violin plots:
-		- [src/trplots/main_projects/allele_length_boxplots/allele_length_boxplots.py](src/trplots/main_projects/allele_length_boxplots/allele_length_boxplots.py)
-		- [src/trplots/main_projects/allele_length_boxplots/allele_length_violin_swarm.py](src/trplots/main_projects/allele_length_boxplots/allele_length_violin_swarm.py)
+		- [src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length_boxplots.py](src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length_boxplots.py)
+		- [src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length_violin_swarm.py](src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length_violin_swarm.py)
 
 - **3. Summaries and utilities**:
 	- Percentage pathogenic by gene+disease: [src/trplots/percentage_path_alleles/percentage_path_alleles.py](src/trplots/percentage_path_alleles/percentage_path_alleles.py)
@@ -69,23 +66,23 @@ python src/trplots/create_master_allele_spreadsheet/allele_spreadsheet.py \
 	--output data/other_data/allele_spreadsheet.xlsx
 ```
 
-2) Ancestry bar plots (respects `--test`, `--test-limit`, `--save-test-outputs`)
+2) Ancestry bar plots (respects `--test`, `--test-limit`, `--save-test-outputs`, `--output-dir`)
 ```bash
 python src/trplots/main_projects/ancestry_bar_plots/ancestry_plot_generator.py --test --test-limit 10
-python src/trplots/main_projects/ancestry_bar_plots/ancestry_plot_generator.py --output-html results/plots/ancestry_plot_generator/HTML --output-png results/plots/ancestry_plot_generator/PNG
+# Optional: override output base
+python src/trplots/main_projects/ancestry_bar_plots/ancestry_plot_generator.py --output-dir results/plots/ancestry_plots
 ```
 
-3) Tandem repeat plots (consumes allele spreadsheet)
+3) Tandem repeat plots (consumes allele spreadsheet; respects `--test`, `--test-limit`, `--output-dir`)
 ```bash
-python src/trplots/main_projects/tandem_repeat_bar_plots/new_tandem_repeat.py --test --test-limit 20
-python src/trplots/main_projects/tandem_repeat_bar_plots/tandem_repeat_plot_generator.py --test
-python src/trplots/main_projects/tandem_repeat_bar_plots/path_ref_motif_tandem_repeat_plot_generator.py --test
+python src/trplots/main_projects/tandem_repeat_bar_plots/path_ref_motif_tandem_repeat_plot_generator.py --test --test-limit 10 \
+	--output-dir results/plots/path_ref_motif_tandem_repeats_plots
 ```
 
 4) Allele length box/violin plots
 ```bash
-python src/trplots/main_projects/allele_length_boxplots/allele_length_boxplots.py --test
-python src/trplots/main_projects/allele_length_boxplots/allele_length_violin_swarm.py --test
+python src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length_boxplots.py --test --test-limit 10
+python src/trplots/main_projects/allele_length_boxplots_and_violin/allele_length_violin_swarm.py --test --test-limit 10
 ```
 
 5) Matching VCF loci to JSON + ancestry (uses defaults from `trplots.config`)
@@ -113,9 +110,9 @@ python src/trplots/merging_files/merge_png_plots_to_one.py --input-dir results/p
 
 **Script Behaviors (Overview)**
 - **allele_spreadsheet.py**: Builds `allele_spreadsheet.xlsx` by integrating VCF haplotypes, loci metadata, and demographics; computes repeat counts and QC flags.
-- **ancestry_plot_generator.py / new_ancestry_plot_generator.py**: Produces ancestry bar charts, saving HTML/PNG under `results/plots/ancestry_plot_generator`.
-- **tandem_repeat_bar_plots/** (`new_tandem_repeat.py`, `tandem_repeat_plot_generator.py`, `path_ref_motif_tandem_repeat_plot_generator.py`): Generates histograms and repeat-count distributions per locus/motif; uses Plotly for interactive outputs.
-- **allele_length_boxplots/**: Creates box/violin + swarm plots of allele lengths.
+- **ancestry_plot_generator.py**: Produces ancestry bar charts; outputs to `results/plots/ancestry_plots/{html,png}` (test mode → `test_outputs`).
+- **tandem_repeat_bar_plots/** (`path_ref_motif_tandem_repeat_plot_generator.py`): Generates histograms and repeat-count distributions per locus/motif; outputs to `results/plots/path_ref_motif_tandem_repeats_plots/{html,png}` (test mode → `test_outputs`).
+- **allele_length_boxplots_and_violin/**: Creates box/violin + swarm plots of allele lengths; outputs to `results/plots/{allele_length_boxplots,allele_length_violin_swarm_plots}/{html,png}` (test mode → `test_outputs`).
 - **motif_count/**: Computes motif-aware metrics from STR VCF using pathogenic motifs from JSON; supports `--vcf` and related inputs (see script help).
 - **matching_files/**: Aligns VCF loci to JSON metadata and ancestry, writing intermediate CSVs and debug info.
 - **merging_files/**: Utilities to merge many plot files into single HTML documents.
@@ -127,7 +124,7 @@ python src/trplots/merging_files/merge_png_plots_to_one.py --input-dir results/p
 **Tips & Notes**
 - Many scripts support quick `--test` runs with `--test-limit N` to validate setup before full processing.
 - Default input/output locations are configurable via [src/trplots/config.py](src/trplots/config.py).
-- Outputs are organized under [results](results) (often `results/plots/<project>/HTML` and `.../PNG`).
+- Outputs are organized under [results](results) at `results/plots/<project>/{html,png}`; test runs save under `test_outputs`.
 - If `pysam` fails to install on macOS, ensure Xcode Command Line Tools are installed (`xcode-select --install`) and try reinstalling `pysam` in the virtual env.
 
 ---

@@ -38,7 +38,7 @@ def ENSURE_DIR(*parts):
     return p
 
 TEST_MODE_DEFAULT = True
-TEST_LIMIT_DEFAULT = 3
+TEST_LIMIT_DEFAULT = 2
 SAVE_TEST_OUTPUTS_DEFAULT = True
 
 def parse_args():
