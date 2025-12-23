@@ -38,7 +38,7 @@ SAVE_TEST_OUTPUTS = True  # If True, also save files when TEST_MODE is on
 # --- File locations ---
 from trplots.config import VCF_PATH, JSON_PATH, OUTPUT_BASE  
 
-OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/new_path_ref_tandem_repeats_plots")
+OUTPUT_BASE = Path(OUTPUT_BASE/"Plots/path_ref_motif_tandem_repeats_plots")
 
 if TEST_MODE:
     OUTPUT_DIR = os.path.join(OUTPUT_BASE, "test_outputs")
